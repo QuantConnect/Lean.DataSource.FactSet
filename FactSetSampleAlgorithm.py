@@ -19,24 +19,25 @@ from AlgorithmImports import *
 class CustomDataAlgorithm(QCAlgorithm):
     def Initialize(self):
         ''' Initialise the data and resolution required, as well as the cash and start-end dates for your algorithm. All algorithms must initialized.'''
-        
+
         self.SetStartDate(2020, 10, 7)   #Set Start Date
         self.SetEndDate(2020, 10, 11)    #Set End Date
         self.equity_symbol = self.AddEquity("SPY", Resolution.Daily).Symbol
-        self.custom_data_symbol = self.AddData(MyCustomDataType, self.equity_symbol).Symbol
+        #self.custom_data_symbol = self.AddData(MyCustomDataType, self.equity_symbol).Symbol
 
     def OnData(self, slice):
         ''' OnData event is the primary entry point for your algorithm. Each new data point will be pumped in here.
 
         :param Slice slice: Slice object keyed by symbol containing the stock data
         '''
-        data = slice.Get(MyCustomDataType)
-        if data:
-            custom_data = data[self.custom_data_symbol]
-            if custom_data.SomeCustomProperty == "buy":
-                self.SetHoldings(self.equitySymbol, 1)
-            elif custom_data.SomeCustomProperty == "sell":
-                self.SetHoldings(self.equitySymbol, -1)
+        #data = slice.Get(MyCustomDataType)
+        #if data:
+        #    custom_data = data[self.custom_data_symbol]
+        #    if custom_data.SomeCustomProperty == "buy":
+        #        self.SetHoldings(self.equitySymbol, 1)
+        #    elif custom_data.SomeCustomProperty == "sell":
+        #        self.SetHoldings(self.equitySymbol, -1)
+        pass
 
     def OnOrderEvent(self, orderEvent):
         ''' Order fill event handler. On an order fill update the resulting information is passed to this method.

@@ -17,7 +17,7 @@
 using System;
 using NUnit.Framework;
 using System.Collections.Generic;
-using QuantConnect.Lean.DataSource.MyCustom;
+using QuantConnect.Lean.DataSource.FactSet;
 
 namespace QuantConnect.DataLibrary.Tests
 {
@@ -29,7 +29,7 @@ namespace QuantConnect.DataLibrary.Tests
         [TestCaseSource(nameof(DownloadTestParameters))]
         public void DownloadHistory(Symbol symbol, Resolution resolution, TickType tickType, TimeSpan period, bool isThrowNotImplementedException)
         {
-            var myCustomDownloader = new MyCustomDataDownloader();
+            var myCustomDownloader = new FactSetDataDownloader();
 
             var request = MyCustomDataProviderHistoryTests.GetHistoryRequest(resolution, tickType, symbol, period);
 

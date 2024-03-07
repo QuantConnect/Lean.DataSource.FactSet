@@ -25,7 +25,7 @@ using QuantConnect.Logging;
 using System.Threading.Tasks;
 using QuantConnect.Data.Market;
 using System.Collections.Generic;
-using QuantConnect.Lean.DataSource.MyCustom;
+using QuantConnect.Lean.DataSource.FactSet;
 
 namespace QuantConnect.DataLibrary.Tests
 {
@@ -42,37 +42,37 @@ namespace QuantConnect.DataLibrary.Tests
             }
         }
 
-        [Test, TestCaseSource(nameof(TestParameters))]
-        public void StreamsData(Symbol symbol, Resolution resolution)
-        {
-            Assert.Pass();
+        //[Test, TestCaseSource(nameof(TestParameters))]
+        //public void StreamsData(Symbol symbol, Resolution resolution)
+        //{
+        //    Assert.Pass();
 
-            var dataQueueHandlerProvider = new MyCustomDataProvider();
+        //    var dataQueueHandlerProvider = new FactSetDataProvider();
 
-            var configs = GetSubscriptionDataConfigs(symbol, resolution).ToList();
+        //    var configs = GetSubscriptionDataConfigs(symbol, resolution).ToList();
 
-            foreach (var config in configs)
-            {
-                ProcessFeed(
-                    dataQueueHandlerProvider.Subscribe(config, (s, e) => { }),
-                    (baseData) =>
-                    {
-                        if (baseData != null)
-                        {
-                            Log.Trace($"{baseData}");
-                        }
-                    });
-            }
+        //    foreach (var config in configs)
+        //    {
+        //        ProcessFeed(
+        //            dataQueueHandlerProvider.Subscribe(config, (s, e) => { }),
+        //            (baseData) =>
+        //            {
+        //                if (baseData != null)
+        //                {
+        //                    Log.Trace($"{baseData}");
+        //                }
+        //            });
+        //    }
 
-            Thread.Sleep(20_000);
+        //    Thread.Sleep(20_000);
 
-            foreach (var config in configs)
-            {
-                dataQueueHandlerProvider.Unsubscribe(config);
-            }
+        //    foreach (var config in configs)
+        //    {
+        //        dataQueueHandlerProvider.Unsubscribe(config);
+        //    }
 
-            Thread.Sleep(1_000);
-        }
+        //    Thread.Sleep(1_000);
+        //}
 
         private IEnumerable<SubscriptionDataConfig> GetSubscriptionDataConfigs(Symbol symbol, Resolution resolution)
         {

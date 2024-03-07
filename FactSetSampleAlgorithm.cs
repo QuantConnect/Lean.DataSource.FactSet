@@ -15,17 +15,15 @@
 */
 
 using QuantConnect.Data;
-using QuantConnect.Util;
 using QuantConnect.Orders;
 using QuantConnect.Algorithm;
-using QuantConnect.DataSource;
 
 namespace QuantConnect.DataLibrary.Tests
 {
     /// <summary>
     /// Example algorithm using the custom data type as a source of alpha
     /// </summary>
-    public class CustomDataAlgorithm : QCAlgorithm
+    public class FactSetSampleAlgorithm : QCAlgorithm
     {
         private Symbol _customDataSymbol;
         private Symbol _equitySymbol;
@@ -38,7 +36,7 @@ namespace QuantConnect.DataLibrary.Tests
             SetStartDate(2013, 10, 07);  //Set Start Date
             SetEndDate(2013, 10, 11);    //Set End Date
             _equitySymbol = AddEquity("SPY").Symbol;
-            _customDataSymbol = AddData<MyCustomDataType>(_equitySymbol).Symbol;
+            //_customDataSymbol = AddData<MyCustomDataType>(_equitySymbol).Symbol;
         }
 
         /// <summary>
@@ -47,19 +45,19 @@ namespace QuantConnect.DataLibrary.Tests
         /// <param name="slice">Slice object keyed by symbol containing the stock data</param>
         public override void OnData(Slice slice)
         {
-            var data = slice.Get<MyCustomDataType>();
-            if (!data.IsNullOrEmpty())
-            {
-                // based on the custom data property we will buy or short the underlying equity
-                if (data[_customDataSymbol].SomeCustomProperty == "buy")
-                {
-                    SetHoldings(_equitySymbol, 1);
-                }
-                else if (data[_customDataSymbol].SomeCustomProperty == "sell")
-                {
-                    SetHoldings(_equitySymbol, -1);
-                }
-            }
+            //var data = slice.Get<MyCustomDataType>();
+            //if (!data.IsNullOrEmpty())
+            //{
+            //    // based on the custom data property we will buy or short the underlying equity
+            //    if (data[_customDataSymbol].SomeCustomProperty == "buy")
+            //    {
+            //        SetHoldings(_equitySymbol, 1);
+            //    }
+            //    else if (data[_customDataSymbol].SomeCustomProperty == "sell")
+            //    {
+            //        SetHoldings(_equitySymbol, -1);
+            //    }
+            //}
         }
 
         /// <summary>

@@ -14,67 +14,100 @@
 */
 
 using System;
-using System.IO;
+using System.Globalization;
 using QuantConnect.Configuration;
 using QuantConnect.Logging;
 using QuantConnect.Util;
+using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 
 namespace QuantConnect.DataProcessing
 {
-    /// <summary>
-    /// Entrypoint for the data downloader/converter
-    /// </summary>
     public class Program
     {
-        /// <summary>
-        /// Entrypoint of the program
-        /// </summary>
-        /// <returns>Exit code. 0 equals successful, and any other value indicates the downloader/converter failed.</returns>
+        public static string DataFleetDeploymentDate = "QC_DATAFLEET_DEPLOYMENT_DATE";
+
         public static void Main()
         {
-            // Get the config values first before running. These values are set for us
-            // automatically to the value set on the website when defining this data type
-            var destinationDirectory = Path.Combine(
-                Config.Get("temp-output-directory", "/temp-output-directory"),
-                "alternative",
-                "vendorname");
+            var ticker = Config.Get("ticker");
+            var securityType = Config.GetValue("security-type", SecurityType.IndexOption);
 
-            MyCustomDataDownloader instance = null;
-            try
+            SecurityType underlyingSecurityType;
+            switch (securityType)
             {
-                // Pass in the values we got from the configuration into the downloader/converter.
-                instance = new MyCustomDataDownloader(destinationDirectory);
+                case SecurityType.Option:
+                    underlyingSecurityType = SecurityType.Equity;
+                    break;
+                case SecurityType.IndexOption:
+                    underlyingSecurityType = SecurityType.Index;
+                    break;
+                default:
+                    Log.Error($"QuantConnect.DataProcessing.Program.Main(): The security type {securityType} is not supported.");
+                    Environment.Exit(1);
+                    return;
             }
-            catch (Exception err)
+
+            var underlying = Symbol.Create(ticker, underlyingSecurityType, Market.USA);
+            var symbol = Symbol.CreateCanonicalOption(underlying);
+
+            var resolution = Config.GetValue("resolution", Resolution.Daily);
+
+            var startDate = Config.GetValue<DateTime>("start-date");
+            if (startDate == default)
             {
-                Log.Error(err, $"QuantConnect.DataProcessing.Program.Main(): The downloader/converter for {MyCustomDataDownloader.VendorDataName} {MyCustomDataDownloader.VendorDataName} data failed to be constructed");
+                var startDateStr = Environment.GetEnvironmentVariable(DataFleetDeploymentDate);
+                if (string.IsNullOrEmpty(startDateStr))
+                {
+                    Log.Error($"QuantConnect.DataProcessing.Program.Main(): The start date was neither set in the configuration " +
+                        $"nor in the {DataFleetDeploymentDate} environment variable.");
+                    Environment.Exit(1);
+                }
+                startDate = DateTime.ParseExact(startDateStr, "yyyyMMdd", CultureInfo.InvariantCulture);
+            }
+
+            var endDate = DateTime.UtcNow.Date.AddDays(-1);
+
+            var factSetAuthConfig = Config.GetValue<FactSetAuthenticationConfiguration>("factset-auth-config");
+            if (factSetAuthConfig == null)
+            {
+                Log.Error($"QuantConnect.DataProcessing.Program.Main(): The FactSet authentication configuration was not set.");
                 Environment.Exit(1);
             }
 
-            // No need to edit anything below here for most use cases.
-            // The downloader/converter is ran and cleaned up for you safely here.
+            // Get the config values first before running. These values are set for us
+            // automatically to the value set on the website when defining this data type
+            var dataFolder = Config.Get("temp-output-directory", "/temp-output-directory");
+
+            Log.Trace($"DataProcessing.Main(): Processing {ticker} | {resolution} | {startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}");
+
+            FactSetDataProcessor processor = null;
             try
             {
-                // Run the data downloader/converter.
-                var success = instance.Run();
-                if (!success)
+                processor = new FactSetDataProcessor(factSetAuthConfig, symbol, resolution, startDate, endDate, dataFolder);
+            }
+            catch (Exception err)
+            {
+                Log.Error(err, $"QuantConnect.DataProcessing.Program.Main(): The downloader/converter failed to be instantiated");
+                Environment.Exit(1);
+            }
+
+            try
+            {
+                if (!processor.Run())
                 {
-                    Log.Error($"QuantConnect.DataProcessing.Program.Main(): Failed to download/process {MyCustomDataDownloader.VendorName} {MyCustomDataDownloader.VendorDataName} data");
+                    Log.Error($"QuantConnect.DataProcessing.Program.Main(): Failed to download/process data");
                     Environment.Exit(1);
                 }
             }
             catch (Exception err)
             {
-                Log.Error(err, $"QuantConnect.DataProcessing.Program.Main(): The downloader/converter for {MyCustomDataDownloader.VendorDataName} {MyCustomDataDownloader.VendorDataName} data exited unexpectedly");
+                Log.Error(err, $"QuantConnect.DataProcessing.Program.Main(): The downloader/converter exited unexpectedly");
                 Environment.Exit(1);
             }
-            finally
-            {
-                // Run cleanup of the downloader/converter once it has finished or crashed.
-                instance.DisposeSafely();
-            }
-            
-            // The downloader/converter was successful
+            //finally
+            //{
+            //    processor.DisposeSafely();
+            //}
+
             Environment.Exit(0);
         }
     }

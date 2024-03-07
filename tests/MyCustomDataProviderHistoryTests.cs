@@ -20,7 +20,7 @@ using NUnit.Framework;
 using QuantConnect.Data;
 using QuantConnect.Util;
 using QuantConnect.Tests;
-using QuantConnect.Lean.DataSource.MyCustom;
+using QuantConnect.Lean.DataSource.FactSet;
 using QuantConnect.Securities;
 using System.Collections.Generic;
 using QuantConnect.Tests.Common.Exceptions;
@@ -30,8 +30,8 @@ namespace QuantConnect.DataLibrary.Tests
     [TestFixture]
     public class MyCustomDataProviderHistoryTests
     {
-        /// <inheritdoc cref="MyCustomDataProvider"/>
-        private readonly MyCustomDataProvider _historyDataProvider = new();
+        /// <inheritdoc cref="FactSetDataProvider"/>
+        private readonly FactSetDataProvider _historyDataProvider = new();
 
         internal static IEnumerable<TestCaseData> TestParameters
         {
