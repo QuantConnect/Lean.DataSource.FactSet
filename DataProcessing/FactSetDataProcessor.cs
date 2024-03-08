@@ -16,14 +16,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using QuantConnect.Data;
-using QuantConnect.Lean.DataSource.FactSet;
 using QuantConnect.Logging;
-using QuantConnect.Util;
-using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 
 namespace QuantConnect.DataProcessing
 {
@@ -31,17 +26,15 @@ namespace QuantConnect.DataProcessing
     /// </summary>
     public class FactSetDataProcessor
     {
-        private static readonly string _tickerWhitelistFilePath = "ticker_whitelist.txt";
-
         public const string VendorName = "FactSet";
         public const string VendorDataName = "FactSet";
 
         private readonly List<string> _tickerWhitelist;
         private readonly string _destinationFolder;
-        private readonly string _dataFolder = Globals.DataFolder;
+        private readonly string _rawDataFolder;
 
-        private readonly FactSetAuthenticationConfiguration _factSetAuthConfig;
-        private readonly FactSetDataDownloader _downloader;
+        private readonly FactSet.SDK.Utils.Authentication.Configuration _factSetAuthConfig;
+        private readonly FactSetDataProcessingDataDownloader _downloader;
 
         private Symbol _symbol;
         private Resolution _resolution;
@@ -57,8 +50,10 @@ namespace QuantConnect.DataProcessing
         /// <param name="startDate">The start date of the data to download</param>
         /// <param name="endDate">The end date of the data to download</param>
         /// <param name="destinationFolder">The destination folder to save the data</param>
-        public FactSetDataProcessor(FactSetAuthenticationConfiguration factSetAuthConfig, Symbol symbol, Resolution resolution,
-            DateTime startDate, DateTime endDate, string destinationFolder)
+        /// <param name="rawDataFolder">The raw data folder</param>
+        /// <param name="tickerWhitelist">A list of supported tickers</param>
+        public FactSetDataProcessor(FactSet.SDK.Utils.Authentication.Configuration factSetAuthConfig, Symbol symbol, Resolution resolution,
+            DateTime startDate, DateTime endDate, string destinationFolder, string rawDataFolder, List<string> tickerWhitelist = null)
         {
             _factSetAuthConfig = factSetAuthConfig;
             _symbol = symbol;
@@ -66,13 +61,13 @@ namespace QuantConnect.DataProcessing
             _startDate = startDate;
             _endDate = endDate;
             _destinationFolder = destinationFolder;
+            _rawDataFolder = rawDataFolder;
+            _tickerWhitelist = tickerWhitelist ?? new List<string>();
 
             if (_symbol.SecurityType != SecurityType.IndexOption || !_symbol.IsCanonical())
             {
                 throw new ArgumentException($"Invalid symbol {symbol}. Only canonical {SecurityType.IndexOption} are supported.");
             }
-
-            _tickerWhitelist = GetTickerWhitelist();
 
             if (!_tickerWhitelist.Contains(symbol.ID.Symbol))
             {
@@ -84,7 +79,7 @@ namespace QuantConnect.DataProcessing
                 throw new ArgumentException($"Unsupported resolution {_resolution}. Only {Resolution.Daily} is currently supported.");
             }
 
-            _downloader = new FactSetDataDownloader(_factSetAuthConfig);
+            _downloader = new FactSetDataProcessingDataDownloader(_factSetAuthConfig, _rawDataFolder);
         }
 
         /// <summary>
@@ -97,6 +92,8 @@ namespace QuantConnect.DataProcessing
 
             Log.Trace($"FactSetDataProcessor.Run(): Start downloading/processing {_symbol} {_resolution} data.");
 
+            // TODO: Since data is daily, should we normalize the start and end dates to the beginning and end of their years?
+
             var tradesTask = Task.Run(() =>
             {
                 var trades = _downloader.Get(new DataDownloaderGetParameters(_symbol, _resolution, _startDate, _endDate, TickType.Trade));
@@ -106,7 +103,7 @@ namespace QuantConnect.DataProcessing
                     return false;
                 }
 
-                var tradesWriter = new LeanDataWriter(_resolution, _symbol, _dataFolder, TickType.Trade);
+                var tradesWriter = new LeanDataWriter(_resolution, _symbol, _destinationFolder, TickType.Trade);
                 tradesWriter.Write(trades);
                 return true;
             });
@@ -120,7 +117,7 @@ namespace QuantConnect.DataProcessing
                     return false;
                 }
 
-                var openInterestWriter = new LeanDataWriter(_resolution, _symbol, _dataFolder, TickType.OpenInterest);
+                var openInterestWriter = new LeanDataWriter(_resolution, _symbol, _destinationFolder, TickType.OpenInterest);
                 openInterestWriter.Write(openInterest);
                 return true;
             });
@@ -136,16 +133,6 @@ namespace QuantConnect.DataProcessing
             Log.Trace($"FactSetDataProcessor.Run(): Finished in {stopwatch.Elapsed.ToStringInvariant(null)}");
 
             return true;
-        }
-
-        private static List<string> GetTickerWhitelist()
-        {
-            if (!File.Exists(_tickerWhitelistFilePath))
-            {
-                throw new FileNotFoundException($"Ticker whitelist file not found: {_tickerWhitelistFilePath}");
-            }
-
-            return File.ReadAllLines(_tickerWhitelistFilePath).ToList();
         }
     }
 }

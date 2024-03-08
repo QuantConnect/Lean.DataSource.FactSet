@@ -17,11 +17,12 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.IO;
+using Newtonsoft.Json;
 using FactSet.SDK.Utils.Authentication;
 using FactSet.SDK.FactSetOptions.Api;
 using FactSet.SDK.FactSetOptions.Model;
 using FactSet.SDK.FactSetOptions.Client;
-using QuantConnect.Data;
 using QuantConnect.Logging;
 using QuantConnect.Data.Market;
 using FactSetOptionsClientConfiguration = FactSet.SDK.FactSetOptions.Client.Configuration;
@@ -41,15 +42,22 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
         private FactSetSymbolMapper _symbolMapper;
 
+        private string? _rawDataFolder;
+
+        private bool ShouldStoreRawData => !string.IsNullOrEmpty(_rawDataFolder);
+
         /// <summary>
         /// Creates a new instance of the <see cref="FactSetApi"/> class
         /// </summary>
         /// <param name="factSetAuthConfiguration">The FactSet authentication configuration for the API</param>
         /// <param name="symbolMapper">The symbol mapper</param>
-        public FactSetApi(FactSetAuthenticationConfiguration factSetAuthConfiguration, FactSetSymbolMapper symbolMapper)
+        /// <param name="rawDataFolder">The raw data folder</param>
+        public FactSetApi(FactSetAuthenticationConfiguration factSetAuthConfiguration, FactSetSymbolMapper symbolMapper,
+            string? rawDataFolder = null)
         {
             _factSetAuthConfiguration = factSetAuthConfiguration;
             _symbolMapper = symbolMapper;
+            _rawDataFolder = rawDataFolder;
 
             var factSetConfidentialClient = ConfidentialClient.CreateAsync(_factSetAuthConfiguration).SynchronouslyAwaitTaskResult();
 
@@ -92,13 +100,13 @@ namespace QuantConnect.Lean.DataSource.FactSet
         }
 
         /// <summary>
-        /// Gets the prices for the specified symbol and date range
+        /// Gets the trades for the specified symbol and date range
         /// </summary>
         /// <param name="symbol">The symbol</param>
         /// <param name="startTime">The start time</param>
         /// <param name="endTime">The end time</param>
         /// <returns>The list of trade bars for the specified symbol and date range</returns>
-        public IEnumerable<BaseData> GetPrices(Symbol symbol, DateTime startTime, DateTime endTime)
+        public IEnumerable<TradeBar> GetDailyOptionsTrades(Symbol symbol, DateTime startTime, DateTime endTime)
         {
             var factSetSymbol = _symbolMapper.GetBrokerageSymbol(symbol);
             var startDate = FactSetUtils.ParseDate(startTime);
@@ -118,13 +126,16 @@ namespace QuantConnect.Lean.DataSource.FactSet
             var prices = pricesResponse.Data;
             var volumes = volumeResponse.Data;
 
+            StoreRawDailyOptionPrices(symbol, prices);
+
             // assume prices and volumes have the same length
             for (int i = 0; i < prices.Count; i++)
             {
                 var priceData = prices[i];
                 var volumeData = volumes[i];
+                var date = priceData.Date.GetValueOrDefault();
 
-                yield return new TradeBar(priceData.Date.GetValueOrDefault(),
+                yield return new TradeBar(date,
                     symbol,
                     (decimal)priceData.PriceOpen.GetValueOrDefault(),
                     (decimal)priceData.PriceHigh.GetValueOrDefault(),
@@ -133,6 +144,67 @@ namespace QuantConnect.Lean.DataSource.FactSet
                     (decimal)volumeData.Volume.GetValueOrDefault(),
                     Time.OneDay);
             }
+        }
+
+        /// <summary>
+        /// Gets the open interest data for the specified symbol and date range
+        /// </summary>
+        /// <param name="symbol">The symbol</param>
+        /// <param name="startTime">The start time</param>
+        /// <param name="endTime">The end time</param>
+        /// <returns>The list of open interest for the specified symbol and date range</returns>
+        public IEnumerable<OpenInterest> GetDailyOpenInterest(Symbol symbol, DateTime startTime, DateTime endTime)
+        {
+            var factSetSymbol = _symbolMapper.GetBrokerageSymbol(symbol);
+            var startDate = FactSetUtils.ParseDate(startTime);
+            var endDate = FactSetUtils.ParseDate(endTime);
+
+            var volumeRequest = new OptionsVolumeRequest(new() { factSetSymbol }, startDate, endDate, Frequency.D);
+            var volumeResponse= _factSetPricesVolumeApi.GetOptionsVolumeForList(volumeRequest);
+
+            StoreRawDailyOptionVolumes(symbol, volumeResponse.Data);
+
+            foreach (var data in volumeResponse.Data)
+            {
+                yield return new OpenInterest(data.Date.GetValueOrDefault(), symbol, data.OpenInterest.GetValueOrDefault());
+            }
+        }
+
+        private void StoreRawDailyOptionPrices(Symbol symbol, List<OptionsPrices> prices)
+        {
+            if (!ShouldStoreRawData)
+            {
+                return;
+            }
+
+            var folder = GetFolder(symbol, Resolution.Daily);
+            var pricesZipFile = Path.Combine(folder, "prices.zip");
+            var pricesJsonFileName = "prices.json";
+            using var streamWriter = new ZipStreamWriter(pricesZipFile, pricesJsonFileName);
+            streamWriter.WriteLine(JsonConvert.SerializeObject(prices, Formatting.None));
+        }
+
+        private void StoreRawDailyOptionVolumes(Symbol symbol, List<OptionsVolume> volumes)
+        {
+            if (!ShouldStoreRawData)
+            {
+                return;
+            }
+
+            var folder = GetFolder(symbol, Resolution.Daily);
+            var volumesZipFile = Path.Combine(folder, "volumes.zip");
+            var volumesJsonFileName = "volumes.json";
+            using var streamWriter = new ZipStreamWriter(volumesZipFile, volumesJsonFileName);
+            streamWriter.WriteLine(JsonConvert.SerializeObject(volumes, Formatting.None));
+        }
+
+        private string GetFolder(Symbol symbol, Resolution resolution)
+        {
+            return Path.Combine(_rawDataFolder,
+                symbol.SecurityType.ToLower(),
+                symbol.ID.Market.ToLower(),
+                Resolution.Daily.ToLower(),
+                symbol.Underlying.Value.ToLowerInvariant());
         }
     }
 }

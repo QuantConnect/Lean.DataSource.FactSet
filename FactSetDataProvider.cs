@@ -41,6 +41,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
         private bool _initialized;
 
+        private string? _rawDataFolder;
+
         private bool _unsupportedAssetWarningSent;
         private bool _unsupportedSecurityTypeWarningSent;
         private bool _unsupportedResolutionWarningSent;
@@ -50,9 +52,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// Creates a new instance of the <see cref="FactSetDataProvider"/> class
         /// </summary>
         /// <param name="factSetAuthConfiguration">The FactSet authentication configuration to use for their API</param>
-        internal FactSetDataProvider(FactSetAuthenticationConfiguration? factSetAuthConfiguration)
+        /// <param name="rawDataFolder">The raw data folder</param>
+        protected internal FactSetDataProvider(FactSetAuthenticationConfiguration? factSetAuthConfiguration, string? rawDataFolder = null)
         {
             _factSetAuthConfiguration = factSetAuthConfiguration;
+            _rawDataFolder = rawDataFolder;
         }
 
         /// <summary>
@@ -109,7 +113,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
             }
 
             _symbolMapper = new FactSetSymbolMapper();
-            _factSetApi = new FactSetApi(_factSetAuthConfiguration, _symbolMapper);
+            _factSetApi = new FactSetApi(_factSetAuthConfiguration, _symbolMapper, _rawDataFolder);
             _optionChainProvider = new CachingOptionChainProvider(new FactSetOptionChainProvider(_factSetApi));
             _initialized = true;
         }
@@ -161,14 +165,23 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// <returns>An enumerable of BaseData points</returns>
         public IEnumerable<BaseData>? GetHistory(Data.HistoryRequest request)
         {
+            if (!_initialized)
+            {
+                throw new InvalidOperationException("The history provider has not been initialized.");
+            }
+
             if (!IsValidRequest(request))
             {
                 return null;
             }
 
-            // TODO: Depending on the tick type we should get prices (trade) or open interest
+            if (request.TickType == TickType.Trade)
+            {
+                return _factSetApi?.GetDailyOptionsTrades(request.Symbol, request.StartTimeUtc, request.EndTimeUtc);
+            }
 
-            return _factSetApi.GetPrices(request.Symbol, request.StartTimeUtc, request.EndTimeUtc);
+            // After IsValidRequest, the only remaining option open interest
+            return _factSetApi?.GetDailyOpenInterest(request.Symbol, request.StartTimeUtc, request.EndTimeUtc);
         }
 
         /// <summary>

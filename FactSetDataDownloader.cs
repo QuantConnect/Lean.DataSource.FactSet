@@ -15,6 +15,7 @@
 */
 
 using System;
+using Newtonsoft.Json.Linq;
 using QuantConnect.Data;
 using System.Collections.Generic;
 using QuantConnect.Util;
@@ -24,7 +25,6 @@ using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using System.Linq;
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
-using Newtonsoft.Json.Linq;
 
 namespace QuantConnect.Lean.DataSource.FactSet
 {
@@ -52,6 +52,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
         public FactSetDataDownloader(FactSetAuthenticationConfiguration factSetAuthConfiguration)
         {
             _dataProvider = new FactSetDataProvider(factSetAuthConfiguration);
+        }
+
+        protected FactSetDataDownloader(FactSetDataProvider dataProvider)
+        {
+            _dataProvider = dataProvider;
         }
 
         /// <summary>

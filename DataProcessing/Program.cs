@@ -14,10 +14,10 @@
 */
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using QuantConnect.Configuration;
 using QuantConnect.Logging;
-using QuantConnect.Util;
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 
 namespace QuantConnect.DataProcessing
@@ -73,16 +73,20 @@ namespace QuantConnect.DataProcessing
                 Environment.Exit(1);
             }
 
+            var tickerWhitelist = Config.GetValue<List<string>>("factset-ticker-whitelist");
+
             // Get the config values first before running. These values are set for us
             // automatically to the value set on the website when defining this data type
             var dataFolder = Config.Get("temp-output-directory", "/temp-output-directory");
+            var rawDataFolder = Config.Get("raw-data-folder", "/raw");
 
             Log.Trace($"DataProcessing.Main(): Processing {ticker} | {resolution} | {startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}");
 
             FactSetDataProcessor processor = null;
             try
             {
-                processor = new FactSetDataProcessor(factSetAuthConfig, symbol, resolution, startDate, endDate, dataFolder);
+                processor = new FactSetDataProcessor(factSetAuthConfig, symbol, resolution, startDate, endDate, dataFolder, rawDataFolder,
+                    tickerWhitelist);
             }
             catch (Exception err)
             {
