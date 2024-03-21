@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.IO;
+using System.Net;
 using Newtonsoft.Json;
 using FactSet.SDK.Utils.Authentication;
 using FactSet.SDK.FactSetOptions.Api;
@@ -32,9 +33,12 @@ using FactSetOptionsExchange = FactSet.SDK.FactSetOptions.Model.Exchange;
 namespace QuantConnect.Lean.DataSource.FactSet
 {
     /// <summary>
+    /// Wrapper around FactSet APIs
     /// </summary>
     public class FactSetApi
     {
+        private const int MaxOptionChainRequestAttepmts = 6;
+
         private FactSetAuthenticationConfiguration _factSetAuthConfiguration;
         private FactSetOptionsClientConfiguration _factSetOptionsClientConfig;
         private PricesVolumeApi _factSetPricesVolumeApi;
@@ -80,14 +84,33 @@ namespace QuantConnect.Lean.DataSource.FactSet
             var request = new ChainsRequest(new List<string>() { factSetSymbol }, FactSetUtils.ParseDate(date), IdType.OCC21,
                 FactSetOptionsExchange.USA);
 
-            ChainsResponse response;
-            try
+            var response = default(ChainsResponse);
+            var attempts = 0;
+            while (attempts < MaxOptionChainRequestAttepmts)
             {
-                response = _factSetOptionChainsScreeningApi.GetOptionsChainsForList(request);
+                try
+                {
+                    attempts++;
+                    response = _factSetOptionChainsScreeningApi.GetOptionsChainsForList(request);
+                }
+                catch (ApiException e)
+                {
+                    // During Beta period, options chain and options screening request might time out at 30s.
+                    // Reference: https://developer.factset.com/api-catalog/factset-options-api
+                    if (e.ErrorCode == (int)HttpStatusCode.RequestTimeout)
+                    {
+                        Log.Trace($"FactSetApi.GetOptionsChains(): Attempt {attempts}/{MaxOptionChainRequestAttepmts} " +
+                            $"to get option chain for underlying timed out. Trying again...");
+                        continue;
+                    }
+
+                    Log.Error(e, $"FactSetApi.GetOptionsChains(): Exception when requesting option chains for underlying {underlying}: {e.Message}");
+                    yield break;
+                }
             }
-            catch (ApiException e)
+
+            if (response == null)
             {
-                Log.Error(e, $"FactSetApi.GetOptionsChains(): Exception when requesting option chains for underlying {underlying}: {e.Message}");
                 yield break;
             }
 
