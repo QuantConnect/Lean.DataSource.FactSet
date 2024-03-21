@@ -26,9 +26,17 @@ namespace QuantConnect.Lean.DataSource.FactSet
     /// </summary>
     public class FactSetSymbolMapper : ISymbolMapper
     {
-        private readonly Dictionary<string, Symbol> _leanSymbolsCache = new();
-        private readonly Dictionary<Symbol, string> _brokerageSymbolsCache = new();
+        private readonly Dictionary<string, Symbol> _occ21ToLeanSymbolsCache = new();
+        private readonly Dictionary<Symbol, string> _leanToOcc21SymbolsCache = new();
         private readonly object _lock = new();
+
+        private FactSetApi _api;
+        private readonly Dictionary<Symbol, string> _leanToFactSetFosSymbolCache = new();
+
+        internal void SetApi(FactSetApi api)
+        {
+            _api = api;
+        }
 
         /// <summary>
         /// Get the FactSet symbol in their OCC21 format for a given Lean symbol
@@ -65,12 +73,12 @@ namespace QuantConnect.Lean.DataSource.FactSet
         {
             if (symbol == null || string.IsNullOrWhiteSpace(symbol.Value))
             {
-                throw new ArgumentException($"Invalid symbol: {(symbol == null ? "null" : symbol.ToString())}");
+                throw new ArgumentException(nameof(symbol), $"Invalid symbol: {(symbol == null ? "null" : symbol.ToString())}");
             }
 
             lock (_lock)
             {
-                if (!_brokerageSymbolsCache.TryGetValue(symbol, out var brokerageSymbol))
+                if (!_leanToOcc21SymbolsCache.TryGetValue(symbol, out var brokerageSymbol))
                 {
                     switch (symbol.SecurityType)
                     {
@@ -85,11 +93,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
                             break;
 
                         default:
-                            throw new ArgumentException($"Unsupported security type: {symbol.SecurityType}");
+                            throw new ArgumentException(nameof(symbol), $"Unsupported security type: {symbol.SecurityType}");
                     }
 
-                    _brokerageSymbolsCache[symbol] = brokerageSymbol;
-                    _leanSymbolsCache[brokerageSymbol] = symbol;
+                    _leanToOcc21SymbolsCache[symbol] = brokerageSymbol;
+                    _occ21ToLeanSymbolsCache[brokerageSymbol] = symbol;
                 }
 
                 return brokerageSymbol;
@@ -107,12 +115,12 @@ namespace QuantConnect.Lean.DataSource.FactSet
         {
             if (string.IsNullOrEmpty(occ21Symbol))
             {
-                throw new ArgumentException($"Invalid OCC21 symbol: {occ21Symbol}");
+                throw new ArgumentException(nameof(occ21Symbol), $"Invalid OCC21 symbol: {occ21Symbol}");
             }
 
             lock (_lock)
             {
-                if (!_leanSymbolsCache.TryGetValue(occ21Symbol, out var symbol))
+                if (!_occ21ToLeanSymbolsCache.TryGetValue(occ21Symbol, out var symbol))
                 {
                     switch (securityType)
                     {
@@ -126,7 +134,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                             var parts = occ21Symbol.Split('#');
                             if (parts.Length != 2)
                             {
-                                throw new ArgumentException($"Invalid OCC21 symbol: {occ21Symbol}");
+                                throw new ArgumentException(nameof(occ21Symbol), $"Invalid OCC21 symbol: {occ21Symbol}");
                             }
 
                             // FactSet symbol might end with "-{Exchange OSI}" (e.g. -US) but it currently only supports US
@@ -135,14 +143,54 @@ namespace QuantConnect.Lean.DataSource.FactSet
                             break;
 
                         default:
-                            throw new ArgumentException($"Unsupported security type: {securityType}");
+                            throw new ArgumentException(nameof(occ21Symbol), $"Unsupported security type: {securityType}");
                     }
 
-                    _leanSymbolsCache[occ21Symbol] = symbol;
-                    _brokerageSymbolsCache[symbol] = occ21Symbol;
+                    _occ21ToLeanSymbolsCache[occ21Symbol] = symbol;
+                    _leanToOcc21SymbolsCache[symbol] = occ21Symbol;
                 }
 
                 return symbol;
+            }
+        }
+
+        /// <summary>
+        /// Gets the FactSet FOS (FactSet Option Symbology) representation of the given Lean Symbol
+        /// </summary>
+        /// <param name="leanSymbol">The lean symbol</param>
+        /// <returns>The corresponding FOS symbol</returns>
+        public string? GetFactSetFosSymbol(Symbol leanSymbol)
+        {
+            if (_api == null)
+            {
+                throw new InvalidOperationException($"FactSetSymbolMapper.GetFactSetFosSymbol(): " +
+                    $"Could not fetch FactSet FOS symbol for {leanSymbol}. The API instance is not set.");
+            }
+
+            if (leanSymbol == null)
+            {
+                throw new ArgumentNullException(nameof(leanSymbol), "Invalid lean symbol");
+            }
+
+            if (leanSymbol.SecurityType != SecurityType.Option && leanSymbol.SecurityType != SecurityType.IndexOption)
+            {
+                throw new ArgumentException(nameof(leanSymbol), $"Invalid symbol security type {leanSymbol.SecurityType}");
+            }
+
+            lock (_leanToFactSetFosSymbolCache)
+            {
+                if (!_leanToFactSetFosSymbolCache.TryGetValue(leanSymbol, out var fosSymbol))
+                {
+                    var optionDetails = _api.GetOptionDetails(leanSymbol);
+                    if (optionDetails == null)
+                    {
+                        return null;
+                    }
+
+                    _leanToFactSetFosSymbolCache[leanSymbol] = fosSymbol = optionDetails.FsymId;
+                }
+
+                return fosSymbol;
             }
         }
     }

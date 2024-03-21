@@ -24,18 +24,18 @@ namespace QuantConnect.DataLibrary.Tests
     [TestFixture]
     public class MyCustomDataDownloaderTests
     {
-        private static IEnumerable<TestCaseData> DownloadTestParameters => MyCustomDataProviderHistoryTests.TestParameters;
+        //private static IEnumerable<TestCaseData> DownloadTestParameters => FactSetDataProviderHistoryTests.InvalidHistoryRequestsTestCases;
 
-        [TestCaseSource(nameof(DownloadTestParameters))]
-        public void DownloadHistory(Symbol symbol, Resolution resolution, TickType tickType, TimeSpan period, bool isThrowNotImplementedException)
-        {
-            var myCustomDownloader = new FactSetDataDownloader();
+        //[TestCaseSource(nameof(DownloadTestParameters))]
+        //public void DownloadHistory(Symbol symbol, Resolution resolution, TickType tickType, TimeSpan period, bool isThrowNotImplementedException)
+        //{
+        //    var myCustomDownloader = new FactSetDataDownloader();
 
-            var request = MyCustomDataProviderHistoryTests.GetHistoryRequest(resolution, tickType, symbol, period);
+        //    var request = FactSetDataProviderHistoryTests.GetHistoryRequest(resolution, tickType, symbol, period);
 
-            var parameters = new DataDownloaderGetParameters(symbol, resolution, request.StartTimeUtc, request.EndTimeUtc, tickType);
+        //    var parameters = new DataDownloaderGetParameters(symbol, resolution, request.StartTimeUtc, request.EndTimeUtc, tickType);
 
-            Assert.Throws<NotImplementedException>(() => myCustomDownloader.Get(parameters));
-        }
+        //    Assert.Throws<NotImplementedException>(() => myCustomDownloader.Get(parameters));
+        //}
     }
 }

@@ -43,6 +43,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
     /// </summary>
     public class FactSetDataProvider : SynchronizingHistoryProvider
     {
+        private static SecurityType[] _supportedSecurityTypes = new[] { SecurityType.IndexOption };
+
         private FactSetAuthenticationConfiguration? _factSetAuthConfiguration;
         private FactSetApi? _factSetApi;
         private FactSetSymbolMapper? _symbolMapper;
@@ -125,6 +127,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             _symbolMapper = new FactSetSymbolMapper();
             _factSetApi = new FactSetApi(_factSetAuthConfiguration, _symbolMapper, _rawDataFolder);
+            _symbolMapper.SetApi(_factSetApi);
             _optionChainProvider = new CachingOptionChainProvider(new FactSetOptionChainProvider(_factSetApi));
             _initialized = true;
         }
@@ -236,12 +239,12 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return false;
             }
 
-            if (request.Symbol.SecurityType != SecurityType.IndexOption)
+            if (!_supportedSecurityTypes.Contains(request.Symbol.SecurityType))
             {
                 if (!_unsupportedSecurityTypeWarningSent)
                 {
                     Log.Trace($"FactSetDataProvider.GetHistory(): Unsupported security type {request.Symbol.SecurityType}. " +
-                        $"Only {SecurityType.IndexOption} is supported");
+                        $"Only {string.Join(", ", _supportedSecurityTypes)} supported");
                     _unsupportedSecurityTypeWarningSent = true;
                 }
                 return false;
