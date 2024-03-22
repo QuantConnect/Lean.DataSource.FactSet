@@ -30,6 +30,7 @@ using QuantConnect.Data.Market;
 using FactSetOptionsClientConfiguration = FactSet.SDK.FactSetOptions.Client.Configuration;
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 using FactSetOptionsExchange = FactSet.SDK.FactSetOptions.Model.Exchange;
+using QuantConnect.Util;
 
 namespace QuantConnect.Lean.DataSource.FactSet
 {
@@ -47,6 +48,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
         private ReferenceApi _optionsReferenceApi;
 
         private FactSetSymbolMapper _symbolMapper;
+
+        private RateGate _rateLimiter = new(50, TimeSpan.FromSeconds(1));
 
         private string? _rawDataFolder;
 
@@ -94,6 +97,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 try
                 {
                     attempts++;
+                    CheckRequestRate();
                     response = _optionChainsScreeningApi.GetOptionsChainsForList(request);
                 }
                 catch (ApiException e)
@@ -137,6 +141,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             try
             {
+                CheckRequestRate();
                 var response = _optionsReferenceApi.GetOptionsReferencesForList(request);
                 return response.Data.SingleOrDefault();
             }
@@ -164,10 +169,13 @@ namespace QuantConnect.Lean.DataSource.FactSet
             var startDate = FactSetUtils.ParseDate(startTime.Date);
             var endDate = FactSetUtils.ParseDate(endTime.Date);
 
-            var pricesRequest = new OptionsPricesRequest(new() { factSetSymbol }, startDate, endDate, Frequency.D);
+            CheckRequestRate();
+            var symbolList = new List<string>() { factSetSymbol };
+            var pricesRequest = new OptionsPricesRequest(symbolList, startDate, endDate, Frequency.D);
             var pricesResponseTask = _pricesVolumeApi.GetOptionsPricesForListAsync(pricesRequest);
 
-            var volumeRequest = new OptionsVolumeRequest(new() { factSetSymbol }, startDate, endDate, Frequency.D);
+            CheckRequestRate();
+            var volumeRequest = new OptionsVolumeRequest(symbolList, startDate, endDate, Frequency.D);
             var volumeResponseTask = _pricesVolumeApi.GetOptionsVolumeForListAsync(volumeRequest);
 
             try
@@ -270,6 +278,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             try
             {
+                CheckRequestRate();
                 volumeResponse = _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest);
             }
             catch (ApiException e)
@@ -329,6 +338,15 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 symbol.ID.Market.ToLower(),
                 Resolution.Daily.ToLower(),
                 symbol.Underlying.Value.ToLowerInvariant());
+        }
+
+        private void CheckRequestRate()
+        {
+            if (_rateLimiter.IsRateLimited)
+            {
+                Log.Trace("FactSetApi.CheckRequestRate(): Rest API calls are limited; waiting to proceed.");
+            }
+            _rateLimiter.WaitToProceed();
         }
 
         private bool TryGetFactSetFosSymbol(Symbol symbol, out string factSetFosSymbol)

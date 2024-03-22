@@ -73,7 +73,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
         {
             if (symbol == null || string.IsNullOrWhiteSpace(symbol.Value))
             {
-                throw new ArgumentException(nameof(symbol), $"Invalid symbol: {(symbol == null ? "null" : symbol.ToString())}");
+                throw new ArgumentException($"Invalid symbol: {(symbol == null ? "null" : symbol.ToString())}", nameof(symbol));
             }
 
             lock (_lock)
@@ -93,7 +93,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                             break;
 
                         default:
-                            throw new ArgumentException(nameof(symbol), $"Unsupported security type: {symbol.SecurityType}");
+                            throw new ArgumentException($"Unsupported security type: {symbol.SecurityType}", nameof(symbol));
                     }
 
                     _leanToOcc21SymbolsCache[symbol] = brokerageSymbol;
@@ -115,7 +115,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
         {
             if (string.IsNullOrEmpty(occ21Symbol))
             {
-                throw new ArgumentException(nameof(occ21Symbol), $"Invalid OCC21 symbol: {occ21Symbol}");
+                throw new ArgumentException($"Invalid OCC21 symbol: {occ21Symbol}", nameof(occ21Symbol));
             }
 
             lock (_lock)
@@ -134,7 +134,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                             var parts = occ21Symbol.Split('#');
                             if (parts.Length != 2)
                             {
-                                throw new ArgumentException(nameof(occ21Symbol), $"Invalid OCC21 symbol: {occ21Symbol}");
+                                throw new ArgumentException($"Invalid OCC21 symbol: {occ21Symbol}", nameof(occ21Symbol));
                             }
 
                             // FactSet symbol might end with "-{Exchange OSI}" (e.g. -US) but it currently only supports US
@@ -143,7 +143,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                             break;
 
                         default:
-                            throw new ArgumentException(nameof(occ21Symbol), $"Unsupported security type: {securityType}");
+                            throw new ArgumentException($"Unsupported security type: {securityType}", nameof(occ21Symbol));
                     }
 
                     _occ21ToLeanSymbolsCache[occ21Symbol] = symbol;
@@ -174,7 +174,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             if (leanSymbol.SecurityType != SecurityType.Option && leanSymbol.SecurityType != SecurityType.IndexOption)
             {
-                throw new ArgumentException(nameof(leanSymbol), $"Invalid symbol security type {leanSymbol.SecurityType}");
+                throw new ArgumentException($"Invalid symbol security type {leanSymbol.SecurityType}", nameof(leanSymbol));
             }
 
             lock (_leanToFactSetFosSymbolCache)

@@ -29,7 +29,7 @@ using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Conf
 namespace QuantConnect.Lean.DataSource.FactSet
 {
     /// <summary>
-    /// Data downloader class for pulling data from Data Provider
+    /// Data downloader class for pulling data from FactSet
     /// </summary>
     public class FactSetDataDownloader : IDataDownloader
     {
@@ -40,9 +40,9 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// Initializes a new instance of the <see cref="FactSetDataDownloader"/>
         /// </summary>
         public FactSetDataDownloader()
-        {
             // The FactSet authentication config will be read from the Lean config file
-            _dataProvider = new FactSetDataProvider();
+            : this(new FactSetDataProvider())
+        {
         }
 
         /// <summary>
@@ -50,13 +50,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// </summary>
         /// <param name="factSetAuthConfiguration">The FactSet authentication configuration to use for their API</param>
         public FactSetDataDownloader(FactSetAuthenticationConfiguration factSetAuthConfiguration)
+            : this(new FactSetDataProvider(factSetAuthConfiguration))
         {
-            _dataProvider = new FactSetDataProvider(factSetAuthConfiguration);
-        }
-
-        protected FactSetDataDownloader(FactSetDataProvider dataProvider)
-        {
-            _dataProvider = dataProvider;
         }
 
         /// <summary>
@@ -64,8 +59,14 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// </summary>
         /// <param name="factSetAuthConfig">The FactSet authentication configuration as a JSON object</param>
         public FactSetDataDownloader(JObject factSetAuthConfig)
+            : this(new FactSetDataProvider(factSetAuthConfig))
         {
-            _dataProvider = new FactSetDataProvider(factSetAuthConfig);
+        }
+
+        protected FactSetDataDownloader(FactSetDataProvider dataProvider)
+        {
+            _dataProvider = dataProvider;
+            _dataProvider.Initialize(new HistoryProviderInitializeParameters(null, null, null, null, null, null, null, false, null, null));
         }
 
         /// <summary>
@@ -147,7 +148,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
             return options;
         }
 
-        private IEnumerable<Symbol> GetOptions(Symbol symbol, DateTime startUtc, DateTime endUtc)
+        /// <summary>
+        /// Gets the options chain for the specified symbol and date range
+        /// </summary>
+        protected virtual IEnumerable<Symbol> GetOptions(Symbol symbol, DateTime startUtc, DateTime endUtc)
         {
             foreach (var date in Time.EachDay(startUtc.Date, endUtc.Date))
             {

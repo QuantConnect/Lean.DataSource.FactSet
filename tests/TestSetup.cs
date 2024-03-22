@@ -23,12 +23,16 @@ using QuantConnect.Configuration;
 
 namespace QuantConnect.DataLibrary.Tests
 {
-    [TestFixture]
+    [SetUpFixture]
     public class TestSetup
     {
-        [Test, TestCaseSource(nameof(TestParameters))]
-        public void TestSetupCase()
+        [OneTimeSetUp]
+        public void SetUp()
         {
+            Log.LogHandler = new CompositeLogHandler();
+            Log.Trace("TestSetup(): starting...");
+            ReloadConfiguration();
+            Log.DebuggingEnabled = Config.GetBool("debug-mode");
         }
 
         public static void ReloadConfiguration()
@@ -57,23 +61,6 @@ namespace QuantConnect.DataLibrary.Tests
 
             // resets the version among other things
             Globals.Reset();
-        }
-
-        private static void SetUp()
-        {
-            Log.LogHandler = new CompositeLogHandler();
-            Log.Trace("TestSetup(): starting...");
-            ReloadConfiguration();
-            Log.DebuggingEnabled = Config.GetBool("debug-mode");
-        }
-
-        private static TestCaseData[] TestParameters
-        {
-            get
-            {
-                SetUp();
-                return new[] { new TestCaseData() };
-            }
         }
     }
 }

@@ -28,6 +28,7 @@ using QuantConnect.Logging;
 namespace QuantConnect.DataLibrary.Tests
 {
     [TestFixture]
+    [Explicit("Requires valid FactSet credentials and depends on internet connection")]
     public class FactSetDataProviderHistoryTests
     {
         private readonly FactSetDataProvider _historyDataProvider = new();
@@ -35,8 +36,6 @@ namespace QuantConnect.DataLibrary.Tests
         [SetUp]
         public void SetUp()
         {
-            Log.LogHandler = new CompositeLogHandler();
-
             _historyDataProvider.Initialize(new HistoryProviderInitializeParameters(null, null, null, null, null, null, null, false, null, null));
         }
 
@@ -71,7 +70,7 @@ namespace QuantConnect.DataLibrary.Tests
         [TestCaseSource(nameof(InvalidHistoryRequestsTestCases))]
         public void DoesntGetHistoryForInvalidRequests(Symbol symbol, Resolution resolution, TickType tickType, TimeSpan period)
         {
-            var request = GetHistoryRequest(resolution, tickType, symbol, new DateTime(2024, 03, 20), period);
+            var request = CreateHistoryRequest(symbol, resolution, tickType, new DateTime(2024, 03, 20), period);
             var slices = _historyDataProvider.GetHistory(request)?.ToList();
 
             Assert.That(slices, Is.Null);
@@ -95,7 +94,7 @@ namespace QuantConnect.DataLibrary.Tests
         [TestCaseSource(nameof(ValidHistoryRequestsTestCases))]
         public void GetsHistory(Symbol symbol, Resolution resolution, TickType tickType, DateTime endDate, TimeSpan period, int expectedHistoryCount)
         {
-            var request = GetHistoryRequest(resolution, tickType, symbol, endDate, period);
+            var request = CreateHistoryRequest(symbol, resolution, tickType, endDate, period);
             var history = _historyDataProvider.GetHistory(request)?.ToList();
 
             Assert.That(history, Is.Not.Null.And.Not.Empty);
@@ -115,7 +114,7 @@ namespace QuantConnect.DataLibrary.Tests
             }
         }
 
-        private static HistoryRequest GetHistoryRequest(Resolution resolution, TickType tickType, Symbol symbol, DateTime endDate, TimeSpan period)
+        private static HistoryRequest CreateHistoryRequest(Symbol symbol, Resolution resolution, TickType tickType, DateTime endDate, TimeSpan period)
         {
             var dataType = LeanData.GetDataType(resolution, tickType);
             var marketHoursDatabase = MarketHoursDatabase.FromDataFolder();

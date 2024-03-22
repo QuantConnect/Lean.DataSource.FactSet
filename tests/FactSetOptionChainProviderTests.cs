@@ -37,8 +37,6 @@ namespace QuantConnect.DataLibrary.Tests
         [OneTimeSetUp]
         public void SetUp()
         {
-            Log.LogHandler = new CompositeLogHandler();
-
             var factSetAuthConfigurationStr = Config.Get("factset-auth-config");
             var factSetAuthConfiguration = JsonConvert.DeserializeObject<FactSet.SDK.Utils.Authentication.Configuration>(factSetAuthConfigurationStr);
             var symbolMapper = new FactSetSymbolMapper();

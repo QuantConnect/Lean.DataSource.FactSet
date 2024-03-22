@@ -217,9 +217,23 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 throw new ArgumentException($"Unsupported security type {symbol.SecurityType}");
             }
 
-            Log.Trace($"FactSetDataProvider.GetOptionChain(): Requesting symbol list for {symbol}");
+            Log.Trace($"FactSetDataProvider.GetOptionChain(): Requesting option chain for {symbol} - {date}");
 
-            return _optionChainProvider.GetOptionContractList(symbol, date);
+            var canonical = default(Symbol);
+            if (symbol.IsCanonical())
+            {
+                canonical = symbol;
+            }
+            else if (symbol.SecurityType.IsOption())
+            {
+                canonical = symbol.Canonical;
+            }
+            else
+            {
+                canonical = Symbol.CreateCanonicalOption(symbol);
+            }
+
+            return _optionChainProvider.GetOptionContractList(symbol, date).Where(optionSymbol => optionSymbol.Canonical == canonical);
         }
 
         /// <summary>
