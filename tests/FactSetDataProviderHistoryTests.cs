@@ -31,12 +31,19 @@ namespace QuantConnect.DataLibrary.Tests
     [Explicit("Requires valid FactSet credentials and depends on internet connection")]
     public class FactSetDataProviderHistoryTests
     {
-        private readonly FactSetDataProvider _historyDataProvider = new();
+        private FactSetDataProvider _historyDataProvider;
 
         [SetUp]
         public void SetUp()
         {
+            _historyDataProvider = new FactSetDataProvider();
             _historyDataProvider.Initialize(new HistoryProviderInitializeParameters(null, null, null, null, null, null, null, false, null, null));
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            _historyDataProvider.DisposeSafely();
         }
 
         private static IEnumerable<TestCaseData> InvalidHistoryRequestsTestCases

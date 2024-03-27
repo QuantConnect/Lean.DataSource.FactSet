@@ -31,7 +31,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
     /// <summary>
     /// Data downloader class for pulling data from FactSet
     /// </summary>
-    public class FactSetDataDownloader : IDataDownloader
+    public class FactSetDataDownloader : IDataDownloader, IDisposable
     {
         private readonly FactSetDataProvider _dataProvider;
         private readonly MarketHoursDatabase _marketHoursDatabase = MarketHoursDatabase.FromDataFolder();
@@ -67,6 +67,14 @@ namespace QuantConnect.Lean.DataSource.FactSet
         {
             _dataProvider = dataProvider;
             _dataProvider.Initialize(new HistoryProviderInitializeParameters(null, null, null, null, null, null, null, false, null, null));
+        }
+
+        /// <summary>
+        /// Disposes of the resources
+        /// </summary>
+        public void Dispose()
+        {
+            _dataProvider.DisposeSafely();
         }
 
         /// <summary>
@@ -137,15 +145,15 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 blockingOptionCollection.CompleteAdding();
             });
 
-            var options = blockingOptionCollection.GetConsumingEnumerable();
+            var data = blockingOptionCollection.GetConsumingEnumerable();
 
             // Validate if the collection contains at least one successful response from history.
-            if (!options.Any())
+            if (!data.Any())
             {
                 return null;
             }
 
-            return options;
+            return data.OrderBy(x => x.Time).ThenBy(x => x.Symbol.ID.Date);
         }
 
         /// <summary>

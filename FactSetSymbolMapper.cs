@@ -15,8 +15,15 @@
 */
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using QuantConnect.Brokerages;
+using QuantConnect.Logging;
+using QuantConnect.Util;
 
 namespace QuantConnect.Lean.DataSource.FactSet
 {
@@ -28,12 +35,24 @@ namespace QuantConnect.Lean.DataSource.FactSet
     {
         private readonly Dictionary<string, Symbol> _occ21ToLeanSymbolsCache = new();
         private readonly Dictionary<Symbol, string> _leanToOcc21SymbolsCache = new();
-        private readonly object _lock = new();
+        private readonly object _occ21SymbolsLock = new();
 
-        private FactSetApi _api;
         private readonly Dictionary<Symbol, string> _leanToFactSetFosSymbolCache = new();
+        private readonly Dictionary<string, Symbol> _factSetFosToLeanSymbolCache = new();
+        private readonly object _fosSymbolsLock = new();
 
-        internal void SetApi(FactSetApi api)
+        private FactSetApi? _api;
+
+        /// <summary>
+        /// The max batch size for each FOS symbol details request. Made a protected property for testing purposes
+        /// </summary>
+        protected int FosSymbolsBatchSize { get; set; } = 100;
+
+        /// <summary>
+        /// Set the api to use for symbol mapping
+        /// </summary>
+        /// <remarks>Intended for internal use</remarks>
+        internal protected void SetApi(FactSetApi api)
         {
             _api = api;
         }
@@ -76,7 +95,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 throw new ArgumentException($"Invalid symbol: {(symbol == null ? "null" : symbol.ToString())}", nameof(symbol));
             }
 
-            lock (_lock)
+            lock (_occ21SymbolsLock)
             {
                 if (!_leanToOcc21SymbolsCache.TryGetValue(symbol, out var brokerageSymbol))
                 {
@@ -110,15 +129,17 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// <param name="occ21Symbol">The FactSet symbol in OCC21 format</param>
         /// <param name="securityType">The symbol security type</param>
         /// <param name="market">The market</param>
+        /// <param name="optionStyle">The option style</param>
         /// <returns>The corresponding Lean symbol</returns>
-        public Symbol ParseFactSetOCC21Symbol(string occ21Symbol, SecurityType securityType, string market = Market.USA)
+        public Symbol ParseFactSetOCC21Symbol(string occ21Symbol, SecurityType securityType, string market = Market.USA,
+            OptionStyle optionStyle = OptionStyle.American)
         {
             if (string.IsNullOrEmpty(occ21Symbol))
             {
                 throw new ArgumentException($"Invalid OCC21 symbol: {occ21Symbol}", nameof(occ21Symbol));
             }
 
-            lock (_lock)
+            lock (_occ21SymbolsLock)
             {
                 if (!_occ21ToLeanSymbolsCache.TryGetValue(occ21Symbol, out var symbol))
                 {
@@ -126,7 +147,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                     {
                         case SecurityType.Equity:
                         case SecurityType.Index:
-                            symbol = Symbol.Create(occ21Symbol, securityType, Market.USA);
+                            symbol = Symbol.Create(occ21Symbol, securityType, market);
                             break;
 
                         case SecurityType.Option:
@@ -139,7 +160,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
                             // FactSet symbol might end with "-{Exchange OSI}" (e.g. -US) but it currently only supports US
                             var osiTicker = parts[0].PadRight(6, ' ') + parts[1].Split("-")[0];
-                            symbol = SymbolRepresentation.ParseOptionTickerOSI(osiTicker, securityType, Market.USA);
+                            symbol = SymbolRepresentation.ParseOptionTickerOSI(osiTicker, securityType, market, optionStyle);
                             break;
 
                         default:
@@ -155,7 +176,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
         }
 
         /// <summary>
-        /// Gets the FactSet FOS (FactSet Option Symbology) representation of the given Lean Symbol
+        /// Gets the FactSet FOS (FactSet Option Symbology) representation of the given Lean symbol
         /// </summary>
         /// <param name="leanSymbol">The lean symbol</param>
         /// <returns>The corresponding FOS symbol</returns>
@@ -177,7 +198,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 throw new ArgumentException($"Invalid symbol security type {leanSymbol.SecurityType}", nameof(leanSymbol));
             }
 
-            lock (_leanToFactSetFosSymbolCache)
+            lock (_fosSymbolsLock)
             {
                 if (!_leanToFactSetFosSymbolCache.TryGetValue(leanSymbol, out var fosSymbol))
                 {
@@ -188,10 +209,154 @@ namespace QuantConnect.Lean.DataSource.FactSet
                     }
 
                     _leanToFactSetFosSymbolCache[leanSymbol] = fosSymbol = optionDetails.FsymId;
+                    _factSetFosToLeanSymbolCache[fosSymbol] = leanSymbol;
                 }
 
                 return fosSymbol;
             }
+        }
+
+        /// <summary>
+        /// Gets the Lean symbol corresponding to the given FactSet FOS (FactSet Option Symbology) symbol
+        /// </summary>
+        /// <param name="fosSymbol">The FactSet FOS symbol</param>
+        /// <param name="securityType">The security type</param>
+        /// <returns>The corresponding Lean symbol</returns>
+        public Symbol? GetLeanSymbolFromFactSetFosSymbol(string fosSymbol, SecurityType securityType)
+        {
+            if (_api == null)
+            {
+                throw new InvalidOperationException($"FactSetSymbolMapper.GetLeanSymbolFromFactSetFosSymbol(): " +
+                    $"Could not fetch Lean symbol for {fosSymbol}. The API instance is not set.");
+            }
+
+            if (string.IsNullOrEmpty(fosSymbol))
+            {
+                throw new ArgumentNullException(nameof(fosSymbol), "Invalid FOS symbol");
+            }
+
+            if (securityType != SecurityType.Option && securityType != SecurityType.IndexOption)
+            {
+                throw new ArgumentException($"Invalid symbol security type {securityType}", nameof(securityType));
+            }
+
+            lock (_leanToFactSetFosSymbolCache)
+            {
+                if (!_factSetFosToLeanSymbolCache.TryGetValue(fosSymbol, out var leanSymbol))
+                {
+                    var optionDetails = _api.GetOptionDetails(fosSymbol);
+                    if (optionDetails == null)
+                    {
+                        return null;
+                    }
+
+                    // Careful here. It is documented that 0=American and 1=European, but the API returns 2 for SPX, for example
+                    var optionStyle = !optionDetails.Style.HasValue || optionDetails.Style.Value == 0 ? OptionStyle.American : OptionStyle.European;
+
+                    _factSetFosToLeanSymbolCache[fosSymbol] = leanSymbol = ParseFactSetOCC21Symbol(optionDetails.Occ21Symbol, securityType,
+                        optionStyle: optionStyle);
+                    _leanToFactSetFosSymbolCache[leanSymbol] = fosSymbol;
+                }
+
+                return leanSymbol;
+            }
+        }
+
+        /// <summary>
+        /// Gets the Lean symbols corresponding to the given FactSet FOS (FactSet Option Symbology) symbols
+        /// </summary>
+        /// <param name="fosSymbols">The FactSet FOS symbols</param>
+        /// <param name="securityType">The security type</param>
+        /// <returns>The corresponding Lean symbols</returns>
+        public IEnumerable<Symbol>? GetLeanSymbolsFromFactSetFosSymbols(List<string> fosSymbols, SecurityType securityType)
+        {
+            if (_api == null)
+            {
+                throw new InvalidOperationException($"FactSetSymbolMapper.GetLeanSymbolsFromFactSetFosSymbols(): " +
+                    $"Could not fetch Lean symbol for the given FOS symbols. The API instance is not set.");
+            }
+
+            if (fosSymbols == null)
+            {
+                throw new ArgumentNullException(nameof(fosSymbols), "Invalid FOS symbol");
+            }
+
+            if (securityType != SecurityType.Option && securityType != SecurityType.IndexOption)
+            {
+                throw new ArgumentException($"Invalid symbol security type {securityType}", nameof(securityType));
+            }
+
+            // Let's get the details in batches to avoid requests timing out
+            var symbolsBlockingCollection = new BlockingCollection<Symbol>();
+            var batchCount = (int)Math.Ceiling((double)fosSymbols.Count / FosSymbolsBatchSize);
+            var finishedEvents = Enumerable.Range(1, batchCount).Select(_ => new ManualResetEventSlim(false)).ToList();
+
+            // We'll use a semaphore in order to limit the number of tasks we create simultaneously,
+            // so we avoid performing too many requests to FactSet
+            using var semaphore = new SemaphoreSlim(15, 15);
+
+            for (var i = 0; i < fosSymbols.Count; i += FosSymbolsBatchSize)
+            {
+                // Wait for some previous task to finish before starting a new one
+                semaphore.Wait();
+
+                var batch = fosSymbols.Skip(i).Take(FosSymbolsBatchSize).ToList();
+
+                Task.Factory.StartNew((o) =>
+                {
+                    var batchIndex = (int)o;
+
+                    var details = _api.GetOptionDetails(batch);
+                    if (details == null)
+                    {
+                        // TODO: Should we stop all requests and throw/return null?
+                        Log.Error($"FactSetSymbolMapper.GetLeanSymbolsFromFactSetFosSymbols(): " +
+                            $"[Batch #{batchIndex + 1}] Could not fetch Lean symbols for the given FOS symbols. The API returned null.");
+
+                        return batchIndex;
+                    }
+
+                    var symbols = details.Select(x => ParseFactSetOCC21Symbol(x.Occ21Symbol, securityType,
+                        optionStyle: !x.Style.HasValue || x.Style.Value == 0 ? OptionStyle.American : OptionStyle.European));
+
+                    // Wait for the previous batch to finish to keep the order of the symbols
+                    if (batchIndex > 0)
+                    {
+                        var previousBatchFinishedEvent = finishedEvents[batchIndex - 1];
+                        previousBatchFinishedEvent.Wait();
+                    }
+
+                    foreach (var symbol in symbols)
+                    {
+                        symbolsBlockingCollection.Add(symbol);
+                    }
+
+                    return batchIndex;
+                }, i / FosSymbolsBatchSize).ContinueWith((task) =>
+                {
+                    semaphore.Release();
+                    finishedEvents[task.Result].Set();
+                });
+            }
+
+            Task.Factory.StartNew(() =>
+            {
+                // Wait for the last batch to be processed in order to marke the blocking collection as done
+                finishedEvents[finishedEvents.Count - 1].Wait();
+                symbolsBlockingCollection.CompleteAdding();
+            });
+
+            foreach (var symbol in symbolsBlockingCollection.GetConsumingEnumerable())
+            {
+                yield return symbol;
+            }
+
+            foreach (var e in finishedEvents)
+            {
+                e.DisposeSafely();
+            }
+
+            // TODO: we could just fetch the missing symbols, but this needs a mechanism to keep the order of the symbols
         }
     }
 }

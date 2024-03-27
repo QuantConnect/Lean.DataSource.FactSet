@@ -16,6 +16,10 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Threading;
+using System.Threading.Tasks;
+using FactSet.SDK.Utils.Authentication;
+using Newtonsoft.Json;
 using QuantConnect.Configuration;
 using QuantConnect.Logging;
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
@@ -29,25 +33,23 @@ namespace QuantConnect.DataProcessing
         public static void Main()
         {
             var ticker = Config.Get("ticker");
+            var targetOptionTicker = Config.Get("target-option-ticker");
             var securityType = Config.GetValue("security-type", SecurityType.IndexOption);
 
             SecurityType underlyingSecurityType;
-            switch (securityType)
+            try
             {
-                case SecurityType.Option:
-                    underlyingSecurityType = SecurityType.Equity;
-                    break;
-                case SecurityType.IndexOption:
-                    underlyingSecurityType = SecurityType.Index;
-                    break;
-                default:
-                    Log.Error($"QuantConnect.DataProcessing.Program.Main(): The security type {securityType} is not supported.");
+                underlyingSecurityType = Symbol.GetUnderlyingFromOptionType(securityType);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"QuantConnect.DataProcessing.Program.Main(): {ex.Message}");
                     Environment.Exit(1);
                     return;
             }
 
             var underlying = Symbol.Create(ticker, underlyingSecurityType, Market.USA);
-            var symbol = Symbol.CreateCanonicalOption(underlying);
+            var symbol = Symbol.CreateCanonicalOption(underlying, targetOptionTicker, Market.USA, null);
 
             var resolution = Config.GetValue("resolution", Resolution.Daily);
 
@@ -66,7 +68,7 @@ namespace QuantConnect.DataProcessing
 
             var endDate = DateTime.UtcNow.Date.AddDays(-1);
 
-            var factSetAuthConfig = Config.GetValue<FactSetAuthenticationConfiguration>("factset-auth-config");
+            var factSetAuthConfig = JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(Config.Get("factset-auth-config"));
             if (factSetAuthConfig == null)
             {
                 Log.Error($"QuantConnect.DataProcessing.Program.Main(): The FactSet authentication configuration was not set.");
@@ -77,8 +79,8 @@ namespace QuantConnect.DataProcessing
 
             // Get the config values first before running. These values are set for us
             // automatically to the value set on the website when defining this data type
-            var dataFolder = Config.Get("temp-output-directory", "/temp-output-directory");
-            var rawDataFolder = Config.Get("raw-data-folder", "/raw");
+            var dataFolder = Config.Get("temp-output-directory", "./temp-output-directory");
+            var rawDataFolder = Config.Get("raw-data-folder", "./raw");
 
             Log.Trace($"DataProcessing.Main(): Processing {ticker} | {resolution} | {startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}");
 

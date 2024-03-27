@@ -19,12 +19,13 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using QuantConnect.Data;
 using QuantConnect.Logging;
+using QuantConnect.Util;
 
 namespace QuantConnect.DataProcessing
 {
     /// <summary>
     /// </summary>
-    public class FactSetDataProcessor
+    public class FactSetDataProcessor : IDisposable
     {
         public const string VendorName = "FactSet";
         public const string VendorDataName = "FactSet";
@@ -80,6 +81,14 @@ namespace QuantConnect.DataProcessing
             }
 
             _downloader = new FactSetDataProcessingDataDownloader(_factSetAuthConfig, _rawDataFolder);
+        }
+
+        /// <summary>
+        /// Disposes of the resources
+        /// </summary>
+        public void Dispose()
+        {
+            _downloader.DisposeSafely();
         }
 
         /// <summary>

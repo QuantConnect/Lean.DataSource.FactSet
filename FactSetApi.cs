@@ -18,7 +18,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.IO;
-using System.Net;
 using System.Linq;
 using Newtonsoft.Json;
 using FactSet.SDK.Utils.Authentication;
@@ -29,7 +28,6 @@ using QuantConnect.Logging;
 using QuantConnect.Data.Market;
 using FactSetOptionsClientConfiguration = FactSet.SDK.FactSetOptions.Client.Configuration;
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
-using FactSetOptionsExchange = FactSet.SDK.FactSetOptions.Model.Exchange;
 using QuantConnect.Util;
 
 namespace QuantConnect.Lean.DataSource.FactSet
@@ -37,7 +35,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
     /// <summary>
     /// Wrapper around FactSet APIs
     /// </summary>
-    public class FactSetApi
+    public class FactSetApi : IDisposable
     {
         private const int MaxOptionChainRequestAttepmts = 6;
 
@@ -49,7 +47,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
         private FactSetSymbolMapper _symbolMapper;
 
-        private RateGate _rateLimiter = new(50, TimeSpan.FromSeconds(1));
+        private RateGate _rateLimiter = new(1, TimeSpan.FromSeconds(1));
 
         private string? _rawDataFolder;
 
@@ -79,54 +77,77 @@ namespace QuantConnect.Lean.DataSource.FactSet
         }
 
         /// <summary>
+        /// Disposes of the FactSet API resources
+        /// </summary>
+        public void Dispose()
+        {
+            _rateLimiter.DisposeSafely();
+        }
+
+        /// <summary>
         /// Gets the option chain for the specified symbol and date
         /// </summary>
         /// <param name="underlying">The underlying symbol</param>
         /// <param name="date">The date</param>
+        /// <param name="canonical">The canonical option. This is useful for index options, for instance, to filter out weeklys</param>
         /// <returns>The option contract list</returns>
-        public IEnumerable<Symbol> GetOptionsChain(Symbol underlying, DateTime date)
+        public IEnumerable<Symbol> GetOptionsChain(Symbol underlying, DateTime date, Symbol? canonical = null)
         {
-            var factSetSymbol = _symbolMapper.GetFactSetOCC21Symbol(underlying);
-            var request = new ChainsRequest(new List<string>() { factSetSymbol }, FactSetUtils.ParseDate(date), IdType.OCC21,
-                FactSetOptionsExchange.USA);
-
-            var response = default(ChainsResponse);
-            var attempts = 0;
-            while (attempts < MaxOptionChainRequestAttepmts)
+            if (underlying.SecurityType != SecurityType.Equity && underlying.SecurityType != SecurityType.Index)
             {
-                try
+                throw new ArgumentException("Underlying security type must be either Equity or Index", nameof(underlying));
+            }
+
+            if (canonical != null && !canonical.IsCanonical() && canonical.Underlying != underlying)
+            {
+                throw new ArgumentException("Canonical symbol must be a canonical option symbol for the given underlying", nameof(canonical));
+            }
+
+            // While the FactSet options API is in beta, we will use the /option-screening endpoint to get the option chain
+            // instead of the /chains endpoint to reduce the chances of timeouts (reference: https://developer.factset.com/api-catalog/factset-options-api)
+            // With the /option-screening endpoint we can split the request into two parts: one for calls and one for puts.
+
+            // 1=Equity, 2=Index Options
+            var optionType = underlying.SecurityType == SecurityType.Equity ? "1" : "2";
+            var tasks = new[] { OptionRight.Call, OptionRight.Put }
+                .Select(optionRight =>
                 {
-                    attempts++;
+                    // 0=Call, 1=Put
+                    var factSetOptionRight = optionRight == OptionRight.Call ? "0" : "1";
+                    var request = new OptionScreeningRequest(ExchangeScreeningId.ALLUSAOPTS,
+                        OptionScreeningRequest.ConditionOneEnum.UNDERLYINGSECURITYE, underlying.Value,
+                        OptionScreeningRequest.ConditionTwoEnum.OPTIONTYPEE, optionType,
+                        OptionScreeningRequest.ConditionThreeEnum.CALLORPUTE, factSetOptionRight,
+                        date: FactSetUtils.ParseDate(date));
+
                     CheckRequestRate();
-                    response = _optionChainsScreeningApi.GetOptionsChainsForList(request);
-                }
-                catch (ApiException e)
+                    return _optionChainsScreeningApi.GetOptionsScreeningForListAsync(request);
+                })
+                .ToArray();
+
+            try
+            {
+                Task.WaitAll(tasks);
+            }
+            catch (AggregateException e)
+            {
+                var exception = e.InnerExceptions.FirstOrDefault(x => x is ApiException);
+                if (exception != null)
                 {
-                    // During Beta period, options chain and options screening request might time out at 30s.
-                    // Reference: https://developer.factset.com/api-catalog/factset-options-api
-                    if (e.ErrorCode == (int)HttpStatusCode.RequestTimeout)
-                    {
-                        Log.Trace($"FactSetApi.GetOptionsChains(): Attempt {attempts}/{MaxOptionChainRequestAttepmts} " +
-                            $"to get option chain for underlying timed out. Trying again...");
-                        continue;
-                    }
-
-                    Log.Error(e, $"FactSetApi.GetOptionsChains(): Exception when requesting option chains for underlying {underlying}: {e.Message}");
-                    yield break;
+                    Log.Error(exception, $"FactSetApi.GetOptionsChain(): Error requesting option chain for {underlying}: {exception.Message}");
+                    return Enumerable.Empty<Symbol>();
                 }
             }
 
-            if (response == null)
+            var optionsFosIds = tasks.SelectMany(task => task.Result.Data).Select(optionScreening => optionScreening.OptionId);
+            if (canonical != null)
             {
-                yield break;
+                optionsFosIds = optionsFosIds.Where(fosId => fosId.Split("#")[0] == canonical.ID.Symbol);
             }
 
-            var optionsSecurityType = underlying.SecurityType == SecurityType.Index ? SecurityType.IndexOption : SecurityType.Option;
-            foreach (var data in response.Data)
-            {
-                var optionSymbol = _symbolMapper.GetLeanSymbol(data.OptionId, optionsSecurityType, Market.USA);
-                yield return optionSymbol;
-            }
+            var optionSecurityType = Symbol.GetOptionTypeFromUnderlying(underlying.SecurityType);
+
+            return _symbolMapper.GetLeanSymbolsFromFactSetFosSymbols(optionsFosIds.ToList(), optionSecurityType) ?? Enumerable.Empty<Symbol>();
         }
 
         /// <summary>
@@ -137,17 +158,37 @@ namespace QuantConnect.Lean.DataSource.FactSet
         public OptionsReferences? GetOptionDetails(Symbol option)
         {
             var factSetSymbol = _symbolMapper.GetFactSetOCC21Symbol(option);
-            var request = new OptionsReferencesRequest(new List<string>() { factSetSymbol });
+            return GetOptionDetails(factSetSymbol);
+        }
+
+        /// <summary>
+        /// Returns basic reference details for the option
+        /// </summary>
+        /// <param name="factSetSymbol">The option which details are requested. It can be either FOS or OCC21.</param>
+        /// <returns>The option reference details. Null if the request fails.</returns>
+        public OptionsReferences? GetOptionDetails(string factSetSymbol)
+        {
+            return GetOptionDetails(new List<string>() { factSetSymbol })?.SingleOrDefault();
+        }
+
+        /// <summary>
+        /// Returns basic reference details for the option
+        /// </summary>
+        /// <param name="factSetSymbols">The options which details are requested. They can be either FOS or OCC21.</param>
+        /// <returns>The options reference details. Null if the request fails.</returns>
+        public IEnumerable<OptionsReferences>? GetOptionDetails(List<string> factSetSymbols)
+        {
+            var request = new OptionsReferencesRequest(factSetSymbols);
 
             try
             {
                 CheckRequestRate();
                 var response = _optionsReferenceApi.GetOptionsReferencesForList(request);
-                return response.Data.SingleOrDefault();
+                return response.Data;
             }
             catch (ApiException e)
             {
-                Log.Error(e, $"FactSetApi.GetOptionReferences(): Error requesting option details for {option}: {e.Message}");
+                Log.Error(e, $"FactSetApi.GetOptionDetails(): Error requesting option details for given FOS symbols: {e.Message}");
                 return null;
             }
         }
@@ -311,6 +352,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
             }
 
             var folder = GetFolder(symbol, Resolution.Daily);
+            if (!Directory.Exists(folder))
+            {
+                Directory.CreateDirectory(folder);
+            }
             var pricesZipFile = Path.Combine(folder, "prices.zip");
             var pricesJsonFileName = "prices.json";
             using var streamWriter = new ZipStreamWriter(pricesZipFile, pricesJsonFileName);

@@ -69,7 +69,17 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             var underlying = symbol.SecurityType.IsOption() ? symbol.Underlying : symbol;
 
-            return _factSetApi.GetOptionsChain(underlying, date);
+            Symbol? canonical = null;
+            if (symbol.IsCanonical())
+            {
+                canonical = symbol;
+            }
+            else if (symbol.SecurityType.IsOption())
+            {
+                canonical = symbol.Canonical;
+            }
+
+            return _factSetApi.GetOptionsChain(underlying, date, canonical);
         }
     }
 }

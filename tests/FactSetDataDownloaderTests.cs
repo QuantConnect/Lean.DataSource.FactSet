@@ -48,7 +48,7 @@ namespace QuantConnect.DataLibrary.Tests
         public void DownloadsHistoricalData(Symbol symbol, Resolution resolution, TickType tickType, DateTime endDate, TimeSpan period,
             int expectedHistoryCount)
         {
-            var downloader = new FactSetDataDownloader();
+            using var downloader = new FactSetDataDownloader();
 
             var parameters = new DataDownloaderGetParameters(symbol, resolution, endDate.Add(-period), endDate, tickType);
             var data = downloader.Get(parameters).ToList();
@@ -91,6 +91,8 @@ namespace QuantConnect.DataLibrary.Tests
 
             var symbolsWithData = data.Select(x => x.Symbol).Distinct().ToList();
             Assert.That(symbolsWithData, Has.Count.GreaterThan(1).And.All.Matches<Symbol>(x => x.Canonical == canonical));
+
+            Assert.That(data, Is.Ordered.By("Time"));
         }
 
         private class TestableFactSetDataDownloader : FactSetDataDownloader
@@ -98,7 +100,7 @@ namespace QuantConnect.DataLibrary.Tests
             protected override IEnumerable<Symbol> GetOptions(Symbol symbol, DateTime startUtc, DateTime endUtc)
             {
                 // Let's only take a few contracts from a few days to speed up the test
-                return base.GetOptions(symbol, startUtc, endUtc)
+                return base.GetOptions(symbol, startUtc, startUtc)
                     .GroupBy(x => x.ID.Date)
                     .OrderBy(x => x.Key)
                     .Select(x => x.Take(50))

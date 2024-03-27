@@ -41,7 +41,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 {
     /// <summary>
     /// </summary>
-    public class FactSetDataProvider : SynchronizingHistoryProvider
+    public class FactSetDataProvider : SynchronizingHistoryProvider, IDisposable
     {
         private static SecurityType[] _supportedSecurityTypes = new[] { SecurityType.IndexOption };
 
@@ -85,6 +85,14 @@ namespace QuantConnect.Lean.DataSource.FactSet
         public FactSetDataProvider()
             : this(JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(Config.Get("factset-auth-config")))
         {
+        }
+
+        /// <summary>
+        /// Disposes of the resources
+        /// </summary>
+        public void Dispose()
+        {
+            _factSetApi.DisposeSafely();
         }
 
         /// <summary>
@@ -189,6 +197,9 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return null;
             }
 
+            Log.Trace($"FactSetDataProvider.GetHistory(): Fetching historical data for {request.Symbol} {request.Resolution} " +
+                $"{request.StartTimeUtc} - {request.EndTimeUtc}");
+
             if (request.TickType == TickType.Trade)
             {
                 return _factSetApi?.GetDailyOptionsTrades(request.Symbol, request.StartTimeUtc, request.EndTimeUtc);
@@ -219,21 +230,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             Log.Trace($"FactSetDataProvider.GetOptionChain(): Requesting option chain for {symbol} - {date}");
 
-            var canonical = default(Symbol);
-            if (symbol.IsCanonical())
-            {
-                canonical = symbol;
-            }
-            else if (symbol.SecurityType.IsOption())
-            {
-                canonical = symbol.Canonical;
-            }
-            else
-            {
-                canonical = Symbol.CreateCanonicalOption(symbol);
-            }
-
-            return _optionChainProvider.GetOptionContractList(symbol, date).Where(optionSymbol => optionSymbol.Canonical == canonical);
+            return _optionChainProvider.GetOptionContractList(symbol, date);
         }
 
         /// <summary>

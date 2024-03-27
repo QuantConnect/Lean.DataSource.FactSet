@@ -22,29 +22,32 @@ using QuantConnect.Tests;
 using QuantConnect.Lean.DataSource.FactSet;
 using QuantConnect.Securities;
 using System.Collections.Generic;
+using Newtonsoft.Json;
+using QuantConnect.Configuration;
+using QuantConnect.Logging;
 
 namespace QuantConnect.DataLibrary.Tests
 {
     [TestFixture]
     public class FactSetSymbolMapperTests
     {
-        private static IEnumerable<Tuple<string, Symbol>> SymbolConvertionTestCases()
+        private static IEnumerable<(string, Symbol)> SymbolConvertionTestCases()
         {
             // Equity
-            yield return new Tuple<string, Symbol>("SPY", Symbols.SPY);
+            yield return new ("SPY", Symbols.SPY);
 
             // Index
-            yield return new Tuple<string, Symbol>("SPX", Symbols.SPX);
+            yield return new ("SPX", Symbols.SPX);
 
             // Options
             var msft = Symbol.Create("MSFT", SecurityType.Equity, Market.USA);
             var msftOption = Symbol.CreateOption(msft, Market.USA, OptionStyle.American, OptionRight.Call, 26m, new DateTime(2009, 11, 21));
 
-            yield return new Tuple<string, Symbol>("MSFT#091121C00026000", msftOption);
+            yield return new ("MSFT#091121C00026000", msftOption);
             // Index Options
 
-            var spxOption = Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.American, OptionRight.Put, 5210m, new DateTime(2024, 03, 28));
-            yield return new Tuple<string, Symbol>("SPX#240328P05210000", spxOption);
+            var spxOption = Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 5210m, new DateTime(2024, 03, 28));
+            yield return new ("SPX#240328P05210000", spxOption);
         }
 
         private static IEnumerable<TestCaseData> FactSetToLeanSymbolConversionTestCases()
@@ -71,6 +74,144 @@ namespace QuantConnect.DataLibrary.Tests
             var mapper = new FactSetSymbolMapper();
             var factSetOcc21Symbol = mapper.GetBrokerageSymbol(leanSymbol);
             Assert.That(factSetOcc21Symbol, Is.EqualTo(expectedFactSetOcc21Symbol));
+        }
+
+        private static IEnumerable<(string, Symbol)> OptionFosSymbolConvertionTestCases()
+        {
+            // Options
+            var aapl = Symbol.Create("AAPL", SecurityType.Equity, Market.USA);
+            var aaplOption = Symbol.CreateOption(aapl, Market.USA, OptionStyle.American, OptionRight.Call, 65m, new DateTime(2024, 06, 21));
+
+            yield return new ("AAPL.US#C229V", aaplOption);
+            // Index Options
+
+            var spxOption = Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 5100m, new DateTime(2024, 12, 20));
+            yield return new ("SPX.SPX#C06W1", spxOption);
+        }
+
+        private static IEnumerable<TestCaseData> OptionLeanSymbolToFactSetFosConversionTestCases()
+        {
+            return OptionFosSymbolConvertionTestCases().Select(x => new TestCaseData(x.Item2, x.Item1));
+        }
+
+        [TestCaseSource(nameof(OptionLeanSymbolToFactSetFosConversionTestCases))]
+        [Explicit("Requires valid FactSet credentials and depends on internet connection")]
+        public void ConvertsOptionLeanSymbolToFosSymbol(Symbol leanOptionSymbol, string expectedFosSymbol)
+        {
+            var mapper = new TestableFactSetSymbolMapper();
+            using var api = GetApi(mapper);
+            mapper.SetApi(api);
+
+            var fosSymbol = mapper.GetFactSetFosSymbol(leanOptionSymbol);
+
+            Log.Trace(fosSymbol);
+
+            Assert.That(fosSymbol, Is.EqualTo(expectedFosSymbol));
+        }
+
+        private static IEnumerable<TestCaseData> OptionFosSymbolToLeanSymbolConversionTestCases()
+        {
+            return OptionFosSymbolConvertionTestCases().Select(x => new TestCaseData(x.Item1, x.Item2));
+        }
+
+        [TestCaseSource(nameof(OptionFosSymbolToLeanSymbolConversionTestCases))]
+        [Explicit("Requires valid FactSet credentials and depends on internet connection")]
+        public void ConvertsOptionFosSymbolToLeanSymbol(string fosSymbol, Symbol expectedLeanOptionSymbol)
+        {
+            var mapper = new TestableFactSetSymbolMapper();
+            using var api = GetApi(mapper);
+            mapper.SetApi(api);
+
+            var leanOptionSymbol = mapper.GetLeanSymbolFromFactSetFosSymbol(fosSymbol, expectedLeanOptionSymbol.SecurityType);
+
+            Assert.That(leanOptionSymbol, Is.EqualTo(expectedLeanOptionSymbol));
+        }
+
+        [Test]
+        [Explicit("Requires valid FactSet credentials and depends on internet connection")]
+        public void ConvertsOptionsFosSymbolsToLeanSymbolsInBatch()
+        {
+            var mapper = new TestableFactSetSymbolMapper(2);
+            using var api = GetApi(mapper);
+            mapper.SetApi(api);
+
+            var fosSymbols = new List<string>
+            {
+                "SPX.SPX#C06W1",
+                "SPX.SPX#C09K8",
+                "SPX.SPX#C0CC3",
+                "SPX.SPX#C0QVS",
+                "SPX.SPX#C0SHF",
+                "SPX.SPX#C0TG2",
+                "SPX.SPX#C0WPR",
+                "SPX.SPX#C0WWT",
+                "SPX.SPX#C1NTH",
+                "SPX.SPX#C1QKQ",
+                "SPX.SPX#P04VY",
+                "SPX.SPX#P0JN8",
+                "SPX.SPX#P0MZR",
+                "SPX.SPX#P0PT3",
+                "SPX.SPX#P0QML",
+                "SPX.SPX#P13YS",
+                "SPX.SPX#P175V",
+                "SPX.SPX#P195K",
+                "SPX.SPX#P1CDN",
+                "SPX.SPX#P1H59",
+            };
+
+            var expectedLeanSymbols = new List<Symbol>
+            {
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 5100m, new DateTime(2024, 12, 20)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 4800m, new DateTime(2025, 12, 19)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 5000m, new DateTime(2025, 12, 19)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 5200m, new DateTime(2025, 12, 19)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 6000m, new DateTime(2025, 12, 19)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 6200m, new DateTime(2025, 12, 19)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 5000m, new DateTime(2024, 12, 20)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 3000m, new DateTime(2024, 12, 20)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 5100m, new DateTime(2026, 12, 18)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Call, 8400m, new DateTime(2024, 12, 20)),
+
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 3700m, new DateTime(2026, 12, 18)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 5700m, new DateTime(2024, 12, 20)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 2800m, new DateTime(2026, 12, 18)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 3600m, new DateTime(2025, 12, 19)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 2800m, new DateTime(2025, 12, 19)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 3800m, new DateTime(2024, 12, 20)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 7200m, new DateTime(2024, 12, 20)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 8800m, new DateTime(2025, 12, 19)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 4400m, new DateTime(2025, 12, 19)),
+                Symbol.CreateOption(Symbols.SPX, Market.USA, OptionStyle.European, OptionRight.Put, 4900m, new DateTime(2024, 12, 20)),
+            };
+
+            var leanSymbolsFromFos = mapper.GetLeanSymbolsFromFactSetFosSymbols(fosSymbols, SecurityType.IndexOption).ToList();
+
+            Assert.That(leanSymbolsFromFos, Is.EqualTo(expectedLeanSymbols));
+        }
+
+        private FactSetApi GetApi(FactSetSymbolMapper symbolMapper)
+        {
+            var factSetAuthConfigurationStr = Config.Get("factset-auth-config");
+            var factSetAuthConfiguration = JsonConvert.DeserializeObject<FactSet.SDK.Utils.Authentication.Configuration>(factSetAuthConfigurationStr);
+
+            return new FactSetApi(factSetAuthConfiguration, symbolMapper);
+        }
+
+        private class TestableFactSetSymbolMapper : FactSetSymbolMapper
+        {
+            public TestableFactSetSymbolMapper()
+            {
+            }
+
+            public TestableFactSetSymbolMapper(int fosSymbolsBatchSize)
+            {
+                FosSymbolsBatchSize = fosSymbolsBatchSize;
+            }
+
+            public new void SetApi(FactSetApi api)
+            {
+                base.SetApi(api);
+            }
         }
     }
 }

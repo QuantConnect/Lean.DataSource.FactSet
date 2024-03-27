@@ -39,9 +39,16 @@ namespace QuantConnect.DataLibrary.Tests
         {
             var factSetAuthConfigurationStr = Config.Get("factset-auth-config");
             var factSetAuthConfiguration = JsonConvert.DeserializeObject<FactSet.SDK.Utils.Authentication.Configuration>(factSetAuthConfigurationStr);
-            var symbolMapper = new FactSetSymbolMapper();
+            var symbolMapper = new TestableFactSetSymbolMapper();
             _api = new FactSetApi(factSetAuthConfiguration, symbolMapper);
             _optionChainProvider = new FactSetOptionChainProvider(_api);
+            symbolMapper.SetApi(_api);
+        }
+
+        [OneTimeTearDown]
+        public void TearDown()
+        {
+            _api.DisposeSafely();
         }
 
         private static Symbol[] Underlyings => new (string Ticker, SecurityType SecurityType)[]
@@ -70,6 +77,8 @@ namespace QuantConnect.DataLibrary.Tests
 
             Assert.That(optionChain, Is.Not.Null.And.Not.Empty);
 
+            Log.Trace($"Option chain for {symbol} contains {optionChain.Count} contracts");
+
             // Multiple strikes
             var strikes = optionChain.Select(x => x.ID.StrikePrice).Distinct().ToList();
             Assert.That(strikes, Has.Count.GreaterThan(1).And.All.GreaterThan(0));
@@ -78,13 +87,27 @@ namespace QuantConnect.DataLibrary.Tests
             var expirations = optionChain.Select(x => x.ID.Date).Distinct().ToList();
             Assert.That(expirations, Has.Count.GreaterThan(1).And.All.GreaterThanOrEqualTo(referenceDate.Date));
 
+            // Calls and puts
+            var optionRights = optionChain.Select(x => x.ID.OptionRight).Distinct().ToList();
+            Assert.That(optionRights, Has.Count.EqualTo(2));
+
             // All contracts have the same underlying
             var underlying = symbol.Underlying ?? symbol;
             Assert.That(optionChain.Select(x => x.Underlying), Is.All.EqualTo(underlying));
 
-            Log.Trace($"Option chain for {symbol} contains {optionChain.Count} contracts");
+            // Security type is correct
+            var optionSecurityType = Symbol.GetOptionTypeFromUnderlying(underlying.SecurityType);
+            Assert.That(optionChain.Select(x => x.SecurityType), Is.All.EqualTo(optionSecurityType));
 
             return optionChain;
+        }
+
+        private class TestableFactSetSymbolMapper : FactSetSymbolMapper
+        {
+            public new void SetApi(FactSetApi api)
+            {
+                base.SetApi(api);
+            }
         }
     }
 }
