@@ -117,7 +117,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
             // 1=Equity, 2=Index Options
             var optionType = underlying.SecurityType == SecurityType.Equity ? "1" : "2";
             var tasks = new[] { OptionRight.Call, OptionRight.Put }
-                .Select(optionRight =>
+                .Select(optionRight => Task.Run(() =>
                 {
                     // 0=Call, 1=Put
                     var factSetOptionRight = optionRight == OptionRight.Call ? "0" : "1";
@@ -128,8 +128,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
                         date: FactSetUtils.ParseDate(date));
 
                     CheckRequestRate();
-                    return _optionChainsScreeningApi.GetOptionsScreeningForListAsync(request);
-                })
+                    return _optionChainsScreeningApi.GetOptionsScreeningForList(request);
+                }))
                 .ToArray();
 
             var requestFunc = () =>
@@ -196,24 +196,24 @@ namespace QuantConnect.Lean.DataSource.FactSet
             try
             {
                 Parallel.ForEach(Enumerable.Range(0, batchCount),
-                new ParallelOptions()
-                {
-                    MaxDegreeOfParallelism = 10,
-                    CancellationToken = cts.Token,
-                },
-                (batchIndex) =>
-                {
-                    var batch = factSetSymbols.Skip(batchIndex * BatchSize).Take(BatchSize).ToList();
-                    var details = GetOptionDetailsImpl(batch);
-
-                    if (details == null)
+                    new ParallelOptions()
                     {
-                        cts.Cancel();
-                        return;
-                    }
+                        MaxDegreeOfParallelism = 10,
+                        CancellationToken = cts.Token,
+                    },
+                    (batchIndex) =>
+                    {
+                        var batch = factSetSymbols.Skip(batchIndex * BatchSize).Take(BatchSize).ToList();
+                        var details = GetOptionDetailsImpl(batch);
 
-                    detailsBatches[batchIndex] = details;
-                });
+                        if (details == null)
+                        {
+                            cts.Cancel();
+                            return;
+                        }
+
+                        detailsBatches[batchIndex] = details;
+                    });
             }
             catch (OperationCanceledException)
             {
