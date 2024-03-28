@@ -131,8 +131,8 @@ namespace QuantConnect.DataLibrary.Tests
         [Explicit("Requires valid FactSet credentials and depends on internet connection")]
         public void ConvertsOptionsFosSymbolsToLeanSymbolsInBatch()
         {
-            var mapper = new TestableFactSetSymbolMapper(2);
-            using var api = GetApi(mapper);
+            var mapper = new TestableFactSetSymbolMapper();
+            using var api = GetTestableApi(mapper, batchSize: 2);
             mapper.SetApi(api);
 
             var fosSymbols = new List<string>
@@ -191,26 +191,38 @@ namespace QuantConnect.DataLibrary.Tests
 
         private FactSetApi GetApi(FactSetSymbolMapper symbolMapper)
         {
-            var factSetAuthConfigurationStr = Config.Get("factset-auth-config");
-            var factSetAuthConfiguration = JsonConvert.DeserializeObject<FactSet.SDK.Utils.Authentication.Configuration>(factSetAuthConfigurationStr);
+            return new FactSetApi(GetFactSetAuthConfig(), symbolMapper);
+        }
 
-            return new FactSetApi(factSetAuthConfiguration, symbolMapper);
+        private TestableFactSetApi GetTestableApi(FactSetSymbolMapper symbolMapper, int batchSize)
+        {
+            return new TestableFactSetApi(GetFactSetAuthConfig(), symbolMapper, batchSize);
+        }
+
+        private FactSet.SDK.Utils.Authentication.Configuration GetFactSetAuthConfig()
+        {
+            var factSetAuthConfigurationStr = Config.Get("factset-auth-config");
+            return JsonConvert.DeserializeObject<FactSet.SDK.Utils.Authentication.Configuration>(factSetAuthConfigurationStr);
         }
 
         private class TestableFactSetSymbolMapper : FactSetSymbolMapper
         {
-            public TestableFactSetSymbolMapper()
-            {
-            }
-
-            public TestableFactSetSymbolMapper(int fosSymbolsBatchSize)
-            {
-                FosSymbolsBatchSize = fosSymbolsBatchSize;
-            }
-
             public new void SetApi(FactSetApi api)
             {
                 base.SetApi(api);
+            }
+        }
+
+        private class TestableFactSetApi : FactSetApi
+        {
+            public TestableFactSetApi(FactSet.SDK.Utils.Authentication.Configuration authConfig, FactSetSymbolMapper symbolMapper,
+                int? batchSize = null)
+                : base(authConfig, symbolMapper)
+            {
+                if (batchSize.HasValue)
+                {
+                    BatchSize = batchSize.Value;
+                }
             }
         }
     }

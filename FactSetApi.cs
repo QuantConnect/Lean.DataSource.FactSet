@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
 using System.Linq;
@@ -52,6 +53,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
         private string? _rawDataFolder;
 
         private bool ShouldStoreRawData => !string.IsNullOrEmpty(_rawDataFolder);
+
+        /// <summary>
+        /// The max batch size for requests. Made a protected property for testing purposes
+        /// </summary>
+        protected int BatchSize { get; set; } = 100;
 
         /// <summary>
         /// Creates a new instance of the <see cref="FactSetApi"/> class
@@ -177,6 +183,52 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// <param name="factSetSymbols">The options which details are requested. They can be either FOS or OCC21.</param>
         /// <returns>The options reference details. Null if the request fails.</returns>
         public IEnumerable<OptionsReferences>? GetOptionDetails(List<string> factSetSymbols)
+        {
+            // Let's get the details in batches to avoid requests timing out
+            var batchCount = (int)Math.Ceiling((double)factSetSymbols.Count / BatchSize);
+            var detailsBatches = Enumerable.Repeat(default(IEnumerable<OptionsReferences>), batchCount).ToList();
+            var finishedEvents = Enumerable.Range(1, batchCount).Select(_ => new ManualResetEventSlim(false)).ToList();
+
+            Task.Run(() => Parallel.ForEach(Enumerable.Range(0, batchCount), new ParallelOptions() { MaxDegreeOfParallelism = 10 }, (batchIndex) =>
+            {
+                var batch = factSetSymbols.Skip(batchIndex * BatchSize).Take(BatchSize).ToList();
+                var details = GetOptionDetailsImpl(batch);
+
+                if (details == null)
+                {
+                    // TODO: Should we stop all requests and throw/return null?
+                    Log.Error($"FactSetSymbolMapper.GetLeanSymbolsFromFactSetFosSymbols(): " +
+                        $"[Batch #{batchIndex + 1}] Could not fetch Lean symbols for the given FOS symbols. The API returned null.");
+
+                    finishedEvents[batchIndex].Set();
+
+                    return;
+                }
+
+                detailsBatches[batchIndex] = details;
+                finishedEvents[batchIndex].Set();
+            }));
+
+            for (var i = 0; i < batchCount; i++)
+            {
+                finishedEvents[i].Wait();
+
+                foreach (var symbol in detailsBatches[i])
+                {
+                    yield return symbol;
+                }
+
+                // We can free the memory used by this batch
+                detailsBatches[i] = null;
+            }
+
+            foreach (var e in finishedEvents)
+            {
+                e.DisposeSafely();
+            }
+        }
+
+        private IEnumerable<OptionsReferences>? GetOptionDetailsImpl(List<string> factSetSymbols)
         {
             var request = new OptionsReferencesRequest(factSetSymbols);
 

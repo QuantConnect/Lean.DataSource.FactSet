@@ -15,15 +15,8 @@
 */
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using QuantConnect.Brokerages;
-using QuantConnect.Logging;
-using QuantConnect.Util;
 
 namespace QuantConnect.Lean.DataSource.FactSet
 {
@@ -42,11 +35,6 @@ namespace QuantConnect.Lean.DataSource.FactSet
         private readonly object _fosSymbolsLock = new();
 
         private FactSetApi? _api;
-
-        /// <summary>
-        /// The max batch size for each FOS symbol details request. Made a protected property for testing purposes
-        /// </summary>
-        protected int FosSymbolsBatchSize { get; set; } = 100;
 
         /// <summary>
         /// Set the api to use for symbol mapping
@@ -240,14 +228,14 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 throw new ArgumentException($"Invalid symbol security type {securityType}", nameof(securityType));
             }
 
-            lock (_leanToFactSetFosSymbolCache)
+            lock (_fosSymbolsLock)
             {
                 if (!_factSetFosToLeanSymbolCache.TryGetValue(fosSymbol, out var leanSymbol))
                 {
                     var optionDetails = _api.GetOptionDetails(fosSymbol);
                     if (optionDetails == null)
                     {
-                        return null;
+                        throw new InvalidOperationException($"Could not fetch option details for {fosSymbol}");
                     }
 
                     // Careful here. It is documented that 0=American and 1=European, but the API returns 2 for SPX, for example
@@ -286,77 +274,29 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 throw new ArgumentException($"Invalid symbol security type {securityType}", nameof(securityType));
             }
 
-            // Let's get the details in batches to avoid requests timing out
-            var symbolsBlockingCollection = new BlockingCollection<Symbol>();
-            var batchCount = (int)Math.Ceiling((double)fosSymbols.Count / FosSymbolsBatchSize);
-            var finishedEvents = Enumerable.Range(1, batchCount).Select(_ => new ManualResetEventSlim(false)).ToList();
+            var detailsList = _api.GetOptionDetails(fosSymbols);
 
-            // We'll use a semaphore in order to limit the number of tasks we create simultaneously,
-            // so we avoid performing too many requests to FactSet
-            using var semaphore = new SemaphoreSlim(15, 15);
-
-            for (var i = 0; i < fosSymbols.Count; i += FosSymbolsBatchSize)
+            if (detailsList == null)
             {
-                // Wait for some previous task to finish before starting a new one
-                semaphore.Wait();
+                // TODO: THis should be a different exception type
+                throw new InvalidOperationException("Could not fetch option details for the given FOS symbols");
+            }
 
-                var batch = fosSymbols.Skip(i).Take(FosSymbolsBatchSize).ToList();
+            foreach (var details in detailsList)
+            {
+                var leanSymbol = ParseFactSetOCC21Symbol(details.Occ21Symbol,
+                    securityType,
+                    optionStyle: !details.Style.HasValue || details.Style.Value == 0 ? OptionStyle.American : OptionStyle.European);
 
-                Task.Factory.StartNew((o) =>
+                // Add the mapping to the FOS symbol cache
+                lock (_fosSymbolsLock)
                 {
-                    var batchIndex = (int)o;
+                    _factSetFosToLeanSymbolCache[details.FsymId] = leanSymbol;
+                    _leanToFactSetFosSymbolCache[leanSymbol] = details.FsymId;
+                }
 
-                    var details = _api.GetOptionDetails(batch);
-                    if (details == null)
-                    {
-                        // TODO: Should we stop all requests and throw/return null?
-                        Log.Error($"FactSetSymbolMapper.GetLeanSymbolsFromFactSetFosSymbols(): " +
-                            $"[Batch #{batchIndex + 1}] Could not fetch Lean symbols for the given FOS symbols. The API returned null.");
-
-                        return batchIndex;
-                    }
-
-                    var symbols = details.Select(x => ParseFactSetOCC21Symbol(x.Occ21Symbol, securityType,
-                        optionStyle: !x.Style.HasValue || x.Style.Value == 0 ? OptionStyle.American : OptionStyle.European));
-
-                    // Wait for the previous batch to finish to keep the order of the symbols
-                    if (batchIndex > 0)
-                    {
-                        var previousBatchFinishedEvent = finishedEvents[batchIndex - 1];
-                        previousBatchFinishedEvent.Wait();
-                    }
-
-                    foreach (var symbol in symbols)
-                    {
-                        symbolsBlockingCollection.Add(symbol);
-                    }
-
-                    return batchIndex;
-                }, i / FosSymbolsBatchSize).ContinueWith((task) =>
-                {
-                    semaphore.Release();
-                    finishedEvents[task.Result].Set();
-                });
+                yield return leanSymbol;
             }
-
-            Task.Factory.StartNew(() =>
-            {
-                // Wait for the last batch to be processed in order to marke the blocking collection as done
-                finishedEvents[finishedEvents.Count - 1].Wait();
-                symbolsBlockingCollection.CompleteAdding();
-            });
-
-            foreach (var symbol in symbolsBlockingCollection.GetConsumingEnumerable())
-            {
-                yield return symbol;
-            }
-
-            foreach (var e in finishedEvents)
-            {
-                e.DisposeSafely();
-            }
-
-            // TODO: we could just fetch the missing symbols, but this needs a mechanism to keep the order of the symbols
         }
     }
 }
