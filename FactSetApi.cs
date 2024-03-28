@@ -139,9 +139,9 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             if (!TryRequest(requestFunc, out var optionsFosIds, out var exception))
             {
-                    Log.Error(exception, $"FactSetApi.GetOptionsChain(): Error requesting option chain for {underlying}: {exception.Message}");
-                    return Enumerable.Empty<Symbol>();
-                }
+                Log.Error(exception, $"FactSetApi.GetOptionsChain(): Error requesting option chain for {underlying}: {exception.Message}");
+                return Enumerable.Empty<Symbol>();
+            }
 
             var optionSecurityType = Symbol.GetOptionTypeFromUnderlying(underlying.SecurityType);
             var leanSymbols = _symbolMapper.GetLeanSymbolsFromFactSetFosSymbols(optionsFosIds.ToList(), optionSecurityType);
@@ -191,46 +191,41 @@ namespace QuantConnect.Lean.DataSource.FactSet
             // Let's get the details in batches to avoid requests timing out
             var batchCount = (int)Math.Ceiling((double)factSetSymbols.Count / BatchSize);
             var detailsBatches = Enumerable.Repeat(default(IEnumerable<OptionsReferences>), batchCount).ToList();
-            var finishedEvents = Enumerable.Range(1, batchCount).Select(_ => new ManualResetEventSlim(false)).ToList();
+            CancellationTokenSource cts = new();
 
-            Task.Run(() => Parallel.ForEach(Enumerable.Range(0, batchCount),
-                new ParallelOptions() { MaxDegreeOfParallelism = 10 },
+            try
+            {
+                Parallel.ForEach(Enumerable.Range(0, batchCount),
+                new ParallelOptions()
+                {
+                    MaxDegreeOfParallelism = 10,
+                    CancellationToken = cts.Token,
+                },
                 (batchIndex) =>
                 {
-                var batch = factSetSymbols.Skip(batchIndex * BatchSize).Take(BatchSize).ToList();
-                var details = GetOptionDetailsImpl(batch);
+                    var batch = factSetSymbols.Skip(batchIndex * BatchSize).Take(BatchSize).ToList();
+                    var details = GetOptionDetailsImpl(batch);
 
-                if (details == null)
-                {
-                    // TODO: Should we stop all requests and throw/return null?
-                    Log.Error($"FactSetSymbolMapper.GetLeanSymbolsFromFactSetFosSymbols(): " +
-                        $"[Batch #{batchIndex + 1}] Could not fetch Lean symbols for the given FOS symbols. The API returned null.");
+                    if (details == null)
+                    {
+                        cts.Cancel();
+                        return;
+                    }
 
-                    finishedEvents[batchIndex].Set();
-
-                    return;
-                }
-
-                detailsBatches[batchIndex] = details;
-                finishedEvents[batchIndex].Set();
-            }));
-
-            for (var i = 0; i < batchCount; i++)
+                    detailsBatches[batchIndex] = details;
+                });
+            }
+            catch (OperationCanceledException)
             {
-                finishedEvents[i].Wait();
+                throw new InvalidOperationException("Could not fetch option details for the given options FOS symbols.");
+            }
 
-                foreach (var symbol in detailsBatches[i])
+            foreach (var batch in detailsBatches)
+            {
+                foreach (var symbol in batch)
                 {
                     yield return symbol;
                 }
-
-                // We can free the memory used by this batch
-                detailsBatches[i] = null;
-            }
-
-            foreach (var e in finishedEvents)
-            {
-                e.DisposeSafely();
             }
         }
 
@@ -274,19 +269,19 @@ namespace QuantConnect.Lean.DataSource.FactSet
             {
                 var getPrices = () =>
                 {
-            CheckRequestRate();
-            var pricesRequest = new OptionsPricesRequest(symbolList, startDate, endDate, Frequency.D);
+                    CheckRequestRate();
+                    var pricesRequest = new OptionsPricesRequest(symbolList, startDate, endDate, Frequency.D);
                     var pricesResponse = _pricesVolumeApi.GetOptionsPricesForList(pricesRequest);
 
                     return pricesResponse.Data;
                 };
 
                 if (!TryRequest(getPrices, out var prices, out var exception))
-            {
+                {
                     Log.Error(exception, $"FactSetApi.GetDailyOptionsTrades(): Error requesting option prices for {symbol} " +
                         $"between {startTime} and {endTime}: {exception.Message}");
                     return null;
-            }
+                }
 
                 return prices;
             });
@@ -389,10 +384,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             var getOpenInterest = () =>
             {
-            var startDate = FactSetUtils.ParseDate(startTime);
-            var endDate = FactSetUtils.ParseDate(endTime);
+                var startDate = FactSetUtils.ParseDate(startTime);
+                var endDate = FactSetUtils.ParseDate(endTime);
 
-            var volumeRequest = new OptionsVolumeRequest(new() { factSetSymbol }, startDate, endDate, Frequency.D);
+                var volumeRequest = new OptionsVolumeRequest(new() { factSetSymbol }, startDate, endDate, Frequency.D);
 
                 CheckRequestRate();
                 return _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest).Data;
