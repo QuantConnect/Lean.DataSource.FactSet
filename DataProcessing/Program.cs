@@ -22,6 +22,7 @@ using FactSet.SDK.Utils.Authentication;
 using Newtonsoft.Json;
 using QuantConnect.Configuration;
 using QuantConnect.Logging;
+using QuantConnect.Securities.IndexOption;
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 
 namespace QuantConnect.DataProcessing
@@ -32,8 +33,7 @@ namespace QuantConnect.DataProcessing
 
         public static void Main()
         {
-            var ticker = Config.Get("ticker");
-            var targetOptionTicker = Config.Get("target-option-ticker");
+            var ticker = Config.Get("tickers");
             var securityType = Config.GetValue("security-type", SecurityType.IndexOption);
 
             SecurityType underlyingSecurityType;
@@ -48,13 +48,19 @@ namespace QuantConnect.DataProcessing
                     return;
             }
 
-            var underlying = Symbol.Create(ticker, underlyingSecurityType, Market.USA);
-            var symbol = Symbol.CreateCanonicalOption(underlying, targetOptionTicker, Market.USA, null);
+            var underlyingTicker = IndexOptionSymbol.MapToUnderlying(ticker);
+            var underlying = Symbol.Create(underlyingTicker, underlyingSecurityType, Market.USA);
+            var symbol = Symbol.CreateCanonicalOption(underlying, ticker, Market.USA, null);
 
             var resolution = Config.GetValue("resolution", Resolution.Daily);
 
             var startDate = Config.GetValue<DateTime>("start-date");
-            if (startDate == default)
+            var endDate = startDate;
+            if (startDate != default)
+            {
+                endDate = DateTime.UtcNow.Date.AddDays(-1);
+            }
+            else
             {
                 var startDateStr = Environment.GetEnvironmentVariable(DataFleetDeploymentDate);
                 if (string.IsNullOrEmpty(startDateStr))
@@ -65,8 +71,6 @@ namespace QuantConnect.DataProcessing
                 }
                 startDate = DateTime.ParseExact(startDateStr, "yyyyMMdd", CultureInfo.InvariantCulture);
             }
-
-            var endDate = DateTime.UtcNow.Date.AddDays(-1);
 
             var factSetAuthConfig = JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(Config.Get("factset-auth-config"));
             if (factSetAuthConfig == null)

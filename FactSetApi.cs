@@ -506,7 +506,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
             return Path.Combine(_rawDataFolder,
                 symbol.SecurityType.ToLower(),
                 symbol.ID.Market.ToLower(),
-                Resolution.Daily.ToLower(),
+                resolution.ToLower(),
                 symbol.Underlying.Value.ToLowerInvariant());
         }
 

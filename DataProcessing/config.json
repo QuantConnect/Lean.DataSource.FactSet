@@ -1,5 +1,16 @@
 {
-    "data-folder": "../../../Data/",
+  "data-folder": "../../../../../Lean/Data/",
 
-    "vendor-auth-token": ""
+  "tickers": [ "SPX", "SPXW" ],
+  "security-type": "IndexOption",
+  "resolution": "Daily",
+  //"start-date": "2024-03-01",
+
+  "factset-ticker-whitelist": [ "SPX", "SPXW" ],
+
+  "job-user-id": 0,
+  "api-access-token": "",
+  "job-organization-id": "",
+
+  "factset-auth-config": {}
 }

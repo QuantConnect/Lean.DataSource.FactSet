@@ -298,13 +298,9 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// </summary>
         private static void ValidateSubscription()
         {
-            // TODO: Remove this when we have a product ID for this project.
-            return;
-
             try
             {
-                // TODO: Set the correct product id
-                const int productId = 999999;
+                const int productId = 343;
                 var userId = Globals.UserId;
                 var token = Globals.UserToken;
                 var organizationId = Globals.OrganizationID;

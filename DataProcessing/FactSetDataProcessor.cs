@@ -16,6 +16,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using QuantConnect.Data;
 using QuantConnect.Logging;
@@ -103,37 +104,25 @@ namespace QuantConnect.DataProcessing
 
             // TODO: Since data is daily, should we normalize the start and end dates to the beginning and end of their years?
 
-            var tradesTask = Task.Run(() =>
-            {
-                var trades = _downloader.Get(new DataDownloaderGetParameters(_symbol, _resolution, _startDate, _endDate, TickType.Trade));
-                if (trades == null)
+            var tasks = new[] { TickType.Trade, TickType.OpenInterest }
+                .Select(tickType => Task.Run(() =>
                 {
-                    Log.Trace($"FactSetDataProcessor.Run(): No trade data found for {_symbol}.");
-                    return false;
-                }
+                    var trades = _downloader.Get(new DataDownloaderGetParameters(_symbol, _resolution, _startDate, _endDate, tickType));
+                    if (trades == null)
+                    {
+                        Log.Trace($"FactSetDataProcessor.Run(): No {tickType} data found for {_symbol}.");
+                        return false;
+                    }
 
-                var tradesWriter = new LeanDataWriter(_resolution, _symbol, _destinationFolder, TickType.Trade);
-                tradesWriter.Write(trades);
-                return true;
-            });
+                    var tradesWriter = new LeanDataWriter(_resolution, _symbol, _destinationFolder, tickType);
+                    tradesWriter.Write(trades);
+                    return true;
+                }))
+                .ToArray();
 
-            var openInterestTask = Task.Run(() =>
-            {
-                var openInterest = _downloader.Get(new DataDownloaderGetParameters(_symbol, _resolution, _startDate, _endDate, TickType.OpenInterest));
-                if (openInterest == null)
-                {
-                    Log.Trace($"FactSetDataProcessor.Run(): No open interest data found for {_symbol}.");
-                    return false;
-                }
+            Task.WaitAll(tasks);
 
-                var openInterestWriter = new LeanDataWriter(_resolution, _symbol, _destinationFolder, TickType.OpenInterest);
-                openInterestWriter.Write(openInterest);
-                return true;
-            });
-
-            Task.WaitAll(tradesTask, openInterestTask);
-
-            if (!tradesTask.Result && !openInterestTask.Result)
+            if (tasks.All(task => !task.Result))
             {
                 Log.Error($"FactSetDataProcessor.Run(): Failed to download/processing {_symbol} {_resolution} data.");
                 return false;
