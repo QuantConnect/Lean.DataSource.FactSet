@@ -118,42 +118,26 @@ namespace QuantConnect.Lean.DataSource.FactSet
         private IEnumerable<BaseData>? GetCanonicalOptionHistory(Symbol symbol, DateTime startUtc, DateTime endUtc, Type dataType,
             Resolution resolution, SecurityExchangeHours exchangeHours, DateTimeZone dataTimeZone, TickType tickType)
         {
-            var blockingOptionCollection = new BlockingCollection<BaseData>();
-            var symbols = GetOptions(symbol, startUtc, endUtc);
+            var symbols = GetOptions(symbol, startUtc, endUtc).ToList();
+
+            var histories = new ConcurrentBag<IEnumerable<BaseData>?>();
 
             // Symbol can have a lot of Option parameters
-            Task.Run(() => Parallel.ForEach(symbols, targetSymbol =>
+            Parallel.ForEach(symbols, targetSymbol =>
             {
                 var historyRequest = new HistoryRequest(startUtc, endUtc, dataType, targetSymbol, resolution, exchangeHours, dataTimeZone,
                     resolution, true, false, DataNormalizationMode.Raw, tickType);
 
                 var history = _dataProvider.GetHistory(historyRequest);
-
-                // If history is null, it indicates an incorrect or missing request for historical data,
-                // so we skip processing for this symbol and move to the next one.
-                if (history == null)
-                {
-                    return;
-                }
-
-                foreach (var data in history)
-                {
-                    blockingOptionCollection.Add(data);
-                }
-            })).ContinueWith(_ =>
-            {
-                blockingOptionCollection.CompleteAdding();
+                histories.Add(history);
             });
 
-            var data = blockingOptionCollection.GetConsumingEnumerable();
-
-            // Validate if the collection contains at least one successful response from history.
-            if (!data.Any())
+            if (histories.All(x => x == null))
             {
                 return null;
             }
 
-            return data.OrderBy(x => x.Time).ThenBy(x => x.Symbol.ID.Date);
+            return histories.Where(x => x != null).SelectMany(x => x).OrderBy(x => x.Time).ThenBy(x => x.Symbol.ID.Date);
         }
 
         /// <summary>

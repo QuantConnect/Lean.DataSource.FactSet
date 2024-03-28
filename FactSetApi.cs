@@ -20,6 +20,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
 using System.Linq;
+using System.Net;
 using Newtonsoft.Json;
 using FactSet.SDK.Utils.Authentication;
 using FactSet.SDK.FactSetOptions.Api;
@@ -38,8 +39,6 @@ namespace QuantConnect.Lean.DataSource.FactSet
     /// </summary>
     public class FactSetApi : IDisposable
     {
-        private const int MaxOptionChainRequestAttepmts = 6;
-
         private FactSetAuthenticationConfiguration _factSetAuthConfiguration;
         private FactSetOptionsClientConfiguration _factSetOptionsClientConfig;
         private PricesVolumeApi _pricesVolumeApi;
@@ -48,7 +47,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
         private FactSetSymbolMapper _symbolMapper;
 
-        private RateGate _rateLimiter = new(1, TimeSpan.FromSeconds(1));
+        private RateGate _rateLimiter;
 
         private string? _rawDataFolder;
 
@@ -80,6 +79,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
             _pricesVolumeApi = new PricesVolumeApi(_factSetOptionsClientConfig);
             _optionChainsScreeningApi = new OptionChainsScreeningApi(_factSetOptionsClientConfig);
             _optionsReferenceApi = new ReferenceApi(_factSetOptionsClientConfig);
+
+            _rateLimiter = new(60, TimeSpan.FromMinutes(1));
         }
 
         /// <summary>
@@ -131,29 +132,32 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 })
                 .ToArray();
 
-            try
+            var requestFunc = () =>
             {
-                Task.WaitAll(tasks);
-            }
-            catch (AggregateException e)
+                return tasks.SelectMany(task => task.Result.Data).Select(optionScreening => optionScreening.OptionId);
+            };
+
+            if (!TryRequest(requestFunc, out var optionsFosIds, out var exception))
             {
-                var exception = e.InnerExceptions.FirstOrDefault(x => x is ApiException);
-                if (exception != null)
-                {
                     Log.Error(exception, $"FactSetApi.GetOptionsChain(): Error requesting option chain for {underlying}: {exception.Message}");
                     return Enumerable.Empty<Symbol>();
                 }
-            }
-
-            var optionsFosIds = tasks.SelectMany(task => task.Result.Data).Select(optionScreening => optionScreening.OptionId);
-            if (canonical != null)
-            {
-                optionsFosIds = optionsFosIds.Where(fosId => fosId.Split("#")[0] == canonical.ID.Symbol);
-            }
 
             var optionSecurityType = Symbol.GetOptionTypeFromUnderlying(underlying.SecurityType);
+            var leanSymbols = _symbolMapper.GetLeanSymbolsFromFactSetFosSymbols(optionsFosIds.ToList(), optionSecurityType);
 
-            return _symbolMapper.GetLeanSymbolsFromFactSetFosSymbols(optionsFosIds.ToList(), optionSecurityType) ?? Enumerable.Empty<Symbol>();
+            if (leanSymbols == null)
+            {
+                Log.Error($"FactSetApi.GetOptionsChain(): Error mapping FactSet FOS symbols to Lean symbols for {underlying}");
+                return Enumerable.Empty<Symbol>();
+            }
+
+            if (canonical != null)
+            {
+                return leanSymbols.Where(symbol => symbol.Canonical == canonical);
+            }
+
+            return leanSymbols;
         }
 
         /// <summary>
@@ -189,8 +193,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
             var detailsBatches = Enumerable.Repeat(default(IEnumerable<OptionsReferences>), batchCount).ToList();
             var finishedEvents = Enumerable.Range(1, batchCount).Select(_ => new ManualResetEventSlim(false)).ToList();
 
-            Task.Run(() => Parallel.ForEach(Enumerable.Range(0, batchCount), new ParallelOptions() { MaxDegreeOfParallelism = 10 }, (batchIndex) =>
-            {
+            Task.Run(() => Parallel.ForEach(Enumerable.Range(0, batchCount),
+                new ParallelOptions() { MaxDegreeOfParallelism = 10 },
+                (batchIndex) =>
+                {
                 var batch = factSetSymbols.Skip(batchIndex * BatchSize).Take(BatchSize).ToList();
                 var details = GetOptionDetailsImpl(batch);
 
@@ -231,18 +237,19 @@ namespace QuantConnect.Lean.DataSource.FactSet
         private IEnumerable<OptionsReferences>? GetOptionDetailsImpl(List<string> factSetSymbols)
         {
             var request = new OptionsReferencesRequest(factSetSymbols);
-
-            try
+            var requestFunc = () =>
             {
                 CheckRequestRate();
-                var response = _optionsReferenceApi.GetOptionsReferencesForList(request);
-                return response.Data;
-            }
-            catch (ApiException e)
+                return _optionsReferenceApi.GetOptionsReferencesForList(request).Data;
+            };
+
+            if (!TryRequest(requestFunc, out var result, out var exception))
             {
-                Log.Error(e, $"FactSetApi.GetOptionDetails(): Error requesting option details for given FOS symbols: {e.Message}");
+                Log.Error(exception, $"FactSetApi.GetOptionDetails(): Error requesting option details for given FOS symbols: {exception.Message}");
                 return null;
             }
+
+            return result;
         }
 
         /// <summary>
@@ -261,35 +268,52 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             var startDate = FactSetUtils.ParseDate(startTime.Date);
             var endDate = FactSetUtils.ParseDate(endTime.Date);
-
-            CheckRequestRate();
             var symbolList = new List<string>() { factSetSymbol };
-            var pricesRequest = new OptionsPricesRequest(symbolList, startDate, endDate, Frequency.D);
-            var pricesResponseTask = _pricesVolumeApi.GetOptionsPricesForListAsync(pricesRequest);
 
-            CheckRequestRate();
-            var volumeRequest = new OptionsVolumeRequest(symbolList, startDate, endDate, Frequency.D);
-            var volumeResponseTask = _pricesVolumeApi.GetOptionsVolumeForListAsync(volumeRequest);
-
-            try
+            var getPricesTask = Task.Run(() =>
             {
-                Task.WaitAll(pricesResponseTask, volumeResponseTask);
-            }
-            catch (AggregateException e)
-            {
-                var exception = e.InnerExceptions.FirstOrDefault(x => x is ApiException);
-                if (exception != null)
+                var getPrices = () =>
                 {
-                    Log.Error(exception, $"FactSetApi.GetDailyOptionsTrades(): Error requesting option prices for {symbol}: {exception.Message}");
+            CheckRequestRate();
+            var pricesRequest = new OptionsPricesRequest(symbolList, startDate, endDate, Frequency.D);
+                    var pricesResponse = _pricesVolumeApi.GetOptionsPricesForList(pricesRequest);
+
+                    return pricesResponse.Data;
+                };
+
+                if (!TryRequest(getPrices, out var prices, out var exception))
+            {
+                    Log.Error(exception, $"FactSetApi.GetDailyOptionsTrades(): Error requesting option prices for {symbol} " +
+                        $"between {startTime} and {endTime}: {exception.Message}");
+                    return null;
+            }
+
+                return prices;
+            });
+
+            var getVolumesTask = Task.Run(() =>
+            {
+                var getVolumes = () =>
+                {
+                    CheckRequestRate();
+                    var volumeRequest = new OptionsVolumeRequest(symbolList, startDate, endDate, Frequency.D);
+                    var volumeResponse = _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest);
+
+                    return volumeResponse.Data;
+                };
+
+                if (!TryRequest(getVolumes, out var volumes, out var exception))
+                {
+                    Log.Error(exception, $"FactSetApi.GetDailyOptionsTrades(): Error requesting option volumes for {symbol} " +
+                        $"between {startTime} and {endTime}: {exception.Message}");
                     return null;
                 }
-            }
 
-            var pricesResponse = pricesResponseTask.Result;
-            var volumeResponse = volumeResponseTask.Result;
+                return volumes;
+            });
 
-            var prices = pricesResponse.Data;
-            var volumes = volumeResponse.Data;
+            var prices = getPricesTask.Result;
+            var volumes = getVolumesTask.Result;
 
             // When data is requested for an invalid symbol, FactSet returns a single record with all fields set to null, except for the request id
             if (prices.Count == 1 && prices[0].FsymId == null)
@@ -363,37 +387,91 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return null;
             }
 
+            var getOpenInterest = () =>
+            {
             var startDate = FactSetUtils.ParseDate(startTime);
             var endDate = FactSetUtils.ParseDate(endTime);
 
             var volumeRequest = new OptionsVolumeRequest(new() { factSetSymbol }, startDate, endDate, Frequency.D);
-            OptionsVolumeResponse volumeResponse;
 
-            try
-            {
                 CheckRequestRate();
-                volumeResponse = _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest);
-            }
-            catch (ApiException e)
+                return _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest).Data;
+            };
+
+            if (!TryRequest(getOpenInterest, out var result, out var exception))
             {
-                Log.Error(e, $"FactSetApi.GetDailyOpenInterest(): Error requesting option volume for {symbol}: {e.Message}");
+                Log.Error(exception, $"FactSetApi.GetDailyOpenInterest(): Error requesting option volume for {symbol}: {exception.Message}");
                 return null;
             }
 
-            var volumes = volumeResponse.Data;
-
             // When data is requested for an invalid symbol, FactSet returns a single record with all fields set to null, except for the request id
-            if (volumes.Count == 1 && volumes[0].FsymId == null)
+            if (result.Count == 1 && result[0].FsymId == null)
             {
                 Log.Error($"FactSetApi.GetDailyOpenInterest(): No data found for {symbol} between {startTime} and {endTime}");
                 return null;
             }
 
-            StoreRawDailyOptionVolumes(symbol, volumes);
+            StoreRawDailyOptionVolumes(symbol, result);
 
-            return volumes
+            return result
                 .Select(point => new OpenInterest(point.Date.GetValueOrDefault(), symbol, point.OpenInterest.GetValueOrDefault()))
                 .Where(tick => tick.EndTime >= startTime && tick.Time <= endTime);
+        }
+
+        /// <summary>
+        /// Try the given callback while getting a "request timeout" or "too many requests" response multiple times,
+        /// returning the result or exception if the max attempts are reached
+        /// </summary>
+        private bool TryRequest<T>(Func<T> request, out T result, out Exception? exception)
+        {
+            result = default;
+            exception = null;
+
+            const int maxAttempts = 5;
+            for (var i = 1; i <= maxAttempts; i++)
+            {
+                try
+                {
+                    result = request();
+                    return true;
+                }
+                catch (Exception e)
+                {
+                    var apiError = default(ApiException);
+                    if (e is ApiException apiException)
+                    {
+                        apiError = apiException;
+                    }
+                    else if (e is AggregateException aggregateEx)
+                    {
+                        apiError = aggregateEx.InnerExceptions.OfType<ApiException>().FirstOrDefault();
+                    }
+
+                    if (apiError != null && i < maxAttempts)
+                    {
+                        if (apiError.ErrorCode == (int)HttpStatusCode.TooManyRequests)
+                        {
+                            Log.Error(apiError, $"FactSet API Rate limit exceeded. Waiting 5 seconds before retrying (attempt {i + 1}/{maxAttempts}).");
+                            Thread.Sleep(5000);
+                            continue;
+                        }
+
+                        // During Beta period, options chain and options screening request might time out at 30s.
+                        // Reference: https://developer.factset.com/api-catalog/factset-options-api
+                        if (apiError.ErrorCode == (int)HttpStatusCode.RequestTimeout)
+                        {
+                            Log.Error(apiError, $"FactSet API request timed out. Waiting 5 seconds before retrying (attempt {i + 1}/{maxAttempts}).");
+                            Thread.Sleep(5000);
+                            continue;
+                        }
+                    }
+
+                    exception = apiError ?? e;
+                    return false;
+                }
+            }
+
+            return false;
         }
 
         private void StoreRawDailyOptionPrices(Symbol symbol, List<OptionsPrices> prices)

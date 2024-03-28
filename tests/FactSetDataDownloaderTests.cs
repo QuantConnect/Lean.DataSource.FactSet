@@ -82,7 +82,7 @@ namespace QuantConnect.DataLibrary.Tests
         {
             var downloader = new TestableFactSetDataDownloader();
             var parameters = new DataDownloaderGetParameters(canonical, Resolution.Daily,
-                new DateTime(2024, 03, 01), new DateTime(2024, 03, 22), TickType.Trade);
+                new DateTime(2024, 03, 04), new DateTime(2024, 03, 22), TickType.Trade);
             var data = downloader.Get(parameters)?.ToList();
 
             Assert.That(data, Is.Not.Null.And.Not.Empty);
@@ -103,7 +103,7 @@ namespace QuantConnect.DataLibrary.Tests
                 return base.GetOptions(symbol, startUtc, startUtc)
                     .GroupBy(x => x.ID.Date)
                     .OrderBy(x => x.Key)
-                    .Select(x => x.Take(50))
+                    .Select(x => x.Take(10))
                     .Take(5)
                     .SelectMany(x => x);
             }

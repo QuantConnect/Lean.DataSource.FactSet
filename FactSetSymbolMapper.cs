@@ -284,6 +284,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             foreach (var details in detailsList)
             {
+                if (details == null || details.FsymId == null)
+                {
+                    continue;
+                }
+
                 var leanSymbol = ParseFactSetOCC21Symbol(details.Occ21Symbol,
                     securityType,
                     optionStyle: !details.Style.HasValue || details.Style.Value == 0 ? OptionStyle.American : OptionStyle.European);
