@@ -31,6 +31,7 @@ using QuantConnect.Data.Market;
 using FactSetOptionsClientConfiguration = FactSet.SDK.FactSetOptions.Client.Configuration;
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 using QuantConnect.Util;
+using System.IO.Compression;
 
 namespace QuantConnect.Lean.DataSource.FactSet
 {
@@ -320,6 +321,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
             }
 
             StoreRawDailyOptionPrices(symbol, prices);
+            StoreRawDailyOptionVolumes(symbol, volumes);
 
             return GetDailyOptionTradeBars(symbol, prices, volumes).Where(bar => bar.EndTime >= startTime && bar.Time <= endTime);
         }
@@ -359,13 +361,19 @@ namespace QuantConnect.Lean.DataSource.FactSet
                     continue;
                 }
 
+                var volume = (decimal)volumeData.Volume.GetValueOrDefault();
+                if (volume == 0)
+                {
+                    continue;
+                }
+
                 yield return new TradeBar(priceDate,
                     symbol,
                     (decimal)priceData.PriceOpen.GetValueOrDefault(),
                     (decimal)priceData.PriceHigh.GetValueOrDefault(),
                     (decimal)priceData.PriceLow.GetValueOrDefault(),
                     (decimal)priceData.Price.GetValueOrDefault(),
-                    (decimal)volumeData.Volume.GetValueOrDefault(),
+                    volume,
                     Time.OneDay);
             }
         }
@@ -471,6 +479,31 @@ namespace QuantConnect.Lean.DataSource.FactSet
             return false;
         }
 
+        private void CheckRequestRate()
+        {
+            if (_rateLimiter.IsRateLimited)
+            {
+                Log.Trace("FactSetApi.CheckRequestRate(): Rest API calls are limited; waiting to proceed.");
+            }
+            _rateLimiter.WaitToProceed();
+        }
+
+        /// <summary>
+        /// Tries to get the FactSet FOS symbol for the specified symbol
+        /// </summary>
+        private bool TryGetFactSetFosSymbol(Symbol symbol, out string factSetFosSymbol)
+        {
+            factSetFosSymbol = _symbolMapper.GetFactSetFosSymbol(symbol);
+            if (factSetFosSymbol == null)
+            {
+                Log.Error($"FactSetApi.TryGetFactSetFosSymbol(): Unable to map symbol {symbol} to a FactSet FOS symbol.");
+                return false;
+            }
+            return true;
+        }
+
+        #region Raw Data Storage
+
         private void StoreRawDailyOptionPrices(Symbol symbol, List<OptionsPrices> prices)
         {
             if (!ShouldStoreRawData)
@@ -488,6 +521,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             _keySynchronizer.Execute(pricesZipFileEntryName, singleExecution: false, () =>
             {
+                if (ZipHasEntry(pricesZipFile, pricesZipFileEntryName))
+                {
+                    return;
+                }
+
                 using var streamWriter = new ZipStreamWriter(pricesZipFile, pricesZipFileEntryName);
                 streamWriter.WriteLine(JsonConvert.SerializeObject(prices, Formatting.None));
             });
@@ -506,6 +544,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             _keySynchronizer.Execute(volumesZipFile, singleExecution: false, () =>
             {
+                if (ZipHasEntry(volumesZipFile, volumesZipFileEntryName))
+                {
+                    return;
+                }
+
                 using var streamWriter = new ZipStreamWriter(volumesZipFile, volumesZipFileEntryName);
                 streamWriter.WriteLine(JsonConvert.SerializeObject(volumes, Formatting.None));
             });
@@ -520,24 +563,25 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 symbol.Underlying.Value.ToLowerInvariant());
         }
 
-        private void CheckRequestRate()
+        private static bool ZipHasEntry(string zipPath, string entryFilename)
         {
-            if (_rateLimiter.IsRateLimited)
+            if (!File.Exists(zipPath))
             {
-                Log.Trace("FactSetApi.CheckRequestRate(): Rest API calls are limited; waiting to proceed.");
-            }
-            _rateLimiter.WaitToProceed();
+                return false;
         }
 
-        private bool TryGetFactSetFosSymbol(Symbol symbol, out string factSetFosSymbol)
+            using var archive = ZipFile.OpenRead(zipPath);
+            foreach (var entry in archive.Entries)
         {
-            factSetFosSymbol = _symbolMapper.GetFactSetFosSymbol(symbol);
-            if (factSetFosSymbol == null)
+                if (entry.FullName == entryFilename)
             {
-                Log.Error($"FactSetApi.TryGetFactSetFosSymbol(): Unable to map symbol {symbol} to a FactSet FOS symbol.");
+                    return true;
+                }
+            }
+
                 return false;
             }
-            return true;
-        }
+
+        #endregion
     }
 }

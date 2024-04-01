@@ -32,7 +32,7 @@ namespace QuantConnect.DataProcessing
     {
         private readonly string _destinationFolder;
         private readonly string _rawDataFolder;
-
+        private readonly List<string> _tickerWhitelist;
         private readonly FactSet.SDK.Utils.Authentication.Configuration _factSetAuthConfig;
         private readonly FactSetDataProcessingDataDownloader _downloader;
 
@@ -63,6 +63,12 @@ namespace QuantConnect.DataProcessing
             _destinationFolder = destinationFolder;
             _rawDataFolder = rawDataFolder;
             _tickerWhitelist = tickerWhitelist ?? new List<string>();
+
+            if (_symbols.Any(symbol => !symbol.SecurityType.IsOption() || !symbol.IsCanonical() || !_tickerWhitelist.Contains(symbol.Underlying.Value)))
+            {
+                throw new ArgumentException("The symbols must be canonical option symbols and the underlying must be in the whitelist.");
+            }
+
             _downloader = new FactSetDataProcessingDataDownloader(_factSetAuthConfig, _rawDataFolder);
         }
 
@@ -85,7 +91,7 @@ namespace QuantConnect.DataProcessing
             // Let's get the options ourselves so the data downloader doesn't have to do it for each tick type
             var symbolsStr = string.Join(", ", _symbols.Select(symbol => symbol.Value));
             Log.Trace($"FactSetDataProcessor.Run(): Fetching options for {symbolsStr}.");
-            var options = _symbols.Select(symbol => _downloader.GetOptionChains(symbol, _startDate, _startDate)).SelectMany(x => x).ToList();
+            var options = _symbols.Select(symbol => _downloader.GetOptionChains(symbol, _startDate, _startDate)).SelectMany(x => x);
 
             Log.Trace($"FactSetDataProcessor.Run(): Found {options.Count} options.");
             Log.Trace($"FactSetDataProcessor.Run(): Start downloading/processing {symbolsStr} {_resolution} data.");
