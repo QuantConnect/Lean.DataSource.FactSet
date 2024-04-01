@@ -511,7 +511,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return;
             }
 
-            var folder = GetFolder(symbol, Resolution.Daily);
+            var folder = GetRawDataFolder(symbol, Resolution.Daily);
             if (!Directory.Exists(folder))
             {
                 Directory.CreateDirectory(folder);
@@ -538,7 +538,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return;
             }
 
-            var folder = GetFolder(symbol, Resolution.Daily);
+            var folder = GetRawDataFolder(symbol, Resolution.Daily);
             var volumesZipFile = Path.Combine(folder, "volumes.zip");
             var volumesZipFileEntryName = symbol.Value.Replace(" ", "") + ".json";
 
@@ -554,13 +554,13 @@ namespace QuantConnect.Lean.DataSource.FactSet
             });
         }
 
-        private string GetFolder(Symbol symbol, Resolution resolution)
+        private string GetRawDataFolder(Symbol symbol, Resolution resolution)
         {
             return Path.Combine(_rawDataFolder,
                 symbol.SecurityType.ToLower(),
                 symbol.ID.Market.ToLower(),
                 resolution.ToLower(),
-                symbol.Underlying.Value.ToLowerInvariant());
+                symbol.ID.Symbol.ToLower());
         }
 
         private static bool ZipHasEntry(string zipPath, string entryFilename)
