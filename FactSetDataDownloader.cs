@@ -123,7 +123,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
             var histories = new ConcurrentBag<IEnumerable<BaseData>?>();
 
             // Symbol can have a lot of Option parameters
-            Parallel.ForEach(symbols, targetSymbol =>
+            Parallel.ForEach(symbols, new ParallelOptions() { MaxDegreeOfParallelism = 10 }, targetSymbol =>
             {
                 var historyRequest = new HistoryRequest(startUtc, endUtc, dataType, targetSymbol, resolution, exchangeHours, dataTimeZone,
                     resolution, true, false, DataNormalizationMode.Raw, tickType);

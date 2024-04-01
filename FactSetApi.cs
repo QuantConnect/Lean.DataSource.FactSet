@@ -39,6 +39,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
     /// </summary>
     public class FactSetApi : IDisposable
     {
+        private static KeyStringSynchronizer _keySynchronizer = new();
+
         private FactSetAuthenticationConfiguration _factSetAuthConfiguration;
         private FactSetOptionsClientConfiguration _factSetOptionsClientConfig;
         private PricesVolumeApi _pricesVolumeApi;
@@ -80,7 +82,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
             _optionChainsScreeningApi = new OptionChainsScreeningApi(_factSetOptionsClientConfig);
             _optionsReferenceApi = new ReferenceApi(_factSetOptionsClientConfig);
 
-            _rateLimiter = new(60, TimeSpan.FromMinutes(1));
+            _rateLimiter = new(40, TimeSpan.FromMinutes(1));
         }
 
         /// <summary>
@@ -482,9 +484,13 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 Directory.CreateDirectory(folder);
             }
             var pricesZipFile = Path.Combine(folder, "prices.zip");
-            var pricesJsonFileName = "prices.json";
-            using var streamWriter = new ZipStreamWriter(pricesZipFile, pricesJsonFileName);
-            streamWriter.WriteLine(JsonConvert.SerializeObject(prices, Formatting.None));
+            var pricesZipFileEntryName = symbol.Value.Replace(" ", "") + ".json";
+
+            _keySynchronizer.Execute(pricesZipFileEntryName, singleExecution: false, () =>
+            {
+                using var streamWriter = new ZipStreamWriter(pricesZipFile, pricesZipFileEntryName);
+                streamWriter.WriteLine(JsonConvert.SerializeObject(prices, Formatting.None));
+            });
         }
 
         private void StoreRawDailyOptionVolumes(Symbol symbol, List<OptionsVolume> volumes)
@@ -496,9 +502,13 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             var folder = GetFolder(symbol, Resolution.Daily);
             var volumesZipFile = Path.Combine(folder, "volumes.zip");
-            var volumesJsonFileName = "volumes.json";
-            using var streamWriter = new ZipStreamWriter(volumesZipFile, volumesJsonFileName);
-            streamWriter.WriteLine(JsonConvert.SerializeObject(volumes, Formatting.None));
+            var volumesZipFileEntryName = symbol.Value.Replace(" ", "") + ".json";
+
+            _keySynchronizer.Execute(volumesZipFile, singleExecution: false, () =>
+            {
+                using var streamWriter = new ZipStreamWriter(volumesZipFile, volumesZipFileEntryName);
+                streamWriter.WriteLine(JsonConvert.SerializeObject(volumes, Formatting.None));
+            });
         }
 
         private string GetFolder(Symbol symbol, Resolution resolution)

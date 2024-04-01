@@ -16,6 +16,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FactSet.SDK.Utils.Authentication;
@@ -33,7 +34,7 @@ namespace QuantConnect.DataProcessing
 
         public static void Main()
         {
-            var ticker = Config.Get("tickers");
+            var tickers = Config.GetValue<List<string>>("tickers");
             var securityType = Config.GetValue("security-type", SecurityType.IndexOption);
 
             SecurityType underlyingSecurityType;
@@ -48,9 +49,12 @@ namespace QuantConnect.DataProcessing
                     return;
             }
 
+            var symbols = tickers.Select(ticker =>
+            {
             var underlyingTicker = IndexOptionSymbol.MapToUnderlying(ticker);
             var underlying = Symbol.Create(underlyingTicker, underlyingSecurityType, Market.USA);
-            var symbol = Symbol.CreateCanonicalOption(underlying, ticker, Market.USA, null);
+                return Symbol.CreateCanonicalOption(underlying, ticker, Market.USA, null);
+            }).ToList();
 
             var resolution = Config.GetValue("resolution", Resolution.Daily);
 
@@ -70,6 +74,7 @@ namespace QuantConnect.DataProcessing
                     Environment.Exit(1);
                 }
                 startDate = DateTime.ParseExact(startDateStr, "yyyyMMdd", CultureInfo.InvariantCulture);
+                endDate = startDate;
             }
 
             var factSetAuthConfig = JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(Config.Get("factset-auth-config"));
@@ -83,15 +88,16 @@ namespace QuantConnect.DataProcessing
 
             // Get the config values first before running. These values are set for us
             // automatically to the value set on the website when defining this data type
-            var dataFolder = Config.Get("temp-output-directory", "./temp-output-directory");
-            var rawDataFolder = Config.Get("raw-data-folder", "./raw");
+            var dataFolder = Config.Get("temp-output-directory", "/temp-output-directory");
+            var rawDataFolder = Config.Get("raw-data-folder", "/raw");
 
-            Log.Trace($"DataProcessing.Main(): Processing {ticker} | {resolution} | {startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}");
+            var tickersStr = string.Join(", ", tickers);
+            Log.Trace($"DataProcessing.Main(): Processing {tickersStr} | {resolution} | {startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}");
 
             FactSetDataProcessor processor = null;
             try
             {
-                processor = new FactSetDataProcessor(factSetAuthConfig, symbol, resolution, startDate, endDate, dataFolder, rawDataFolder,
+                processor = new FactSetDataProcessor(factSetAuthConfig, symbols, resolution, startDate, endDate, dataFolder, rawDataFolder,
                     tickerWhitelist);
             }
             catch (Exception err)

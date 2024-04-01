@@ -16,7 +16,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using QuantConnect.Data;
 using QuantConnect.Logging;
@@ -28,17 +30,13 @@ namespace QuantConnect.DataProcessing
     /// </summary>
     public class FactSetDataProcessor : IDisposable
     {
-        public const string VendorName = "FactSet";
-        public const string VendorDataName = "FactSet";
-
-        private readonly List<string> _tickerWhitelist;
         private readonly string _destinationFolder;
         private readonly string _rawDataFolder;
 
         private readonly FactSet.SDK.Utils.Authentication.Configuration _factSetAuthConfig;
         private readonly FactSetDataProcessingDataDownloader _downloader;
 
-        private Symbol _symbol;
+        private List<Symbol> _symbols;
         private Resolution _resolution;
         private DateTime _startDate;
         private DateTime _endDate;
@@ -47,40 +45,24 @@ namespace QuantConnect.DataProcessing
         /// Creates a new instance of the <see cref="FactSetDataProcessor"/> class.
         /// </summary>
         /// <param name="factSetAuthConfig">The FactSet authentication configuration</param>
-        /// <param name="symbol">The symbol to download data for</param>
+        /// <param name="symbols">The symbols to download data for</param>
         /// <param name="resolution">The resolution of the data to download</param>
         /// <param name="startDate">The start date of the data to download</param>
         /// <param name="endDate">The end date of the data to download</param>
         /// <param name="destinationFolder">The destination folder to save the data</param>
         /// <param name="rawDataFolder">The raw data folder</param>
         /// <param name="tickerWhitelist">A list of supported tickers</param>
-        public FactSetDataProcessor(FactSet.SDK.Utils.Authentication.Configuration factSetAuthConfig, Symbol symbol, Resolution resolution,
+        public FactSetDataProcessor(FactSet.SDK.Utils.Authentication.Configuration factSetAuthConfig, List<Symbol> symbols, Resolution resolution,
             DateTime startDate, DateTime endDate, string destinationFolder, string rawDataFolder, List<string> tickerWhitelist = null)
         {
             _factSetAuthConfig = factSetAuthConfig;
-            _symbol = symbol;
+            _symbols = symbols;
             _resolution = resolution;
             _startDate = startDate;
             _endDate = endDate;
             _destinationFolder = destinationFolder;
             _rawDataFolder = rawDataFolder;
             _tickerWhitelist = tickerWhitelist ?? new List<string>();
-
-            if (_symbol.SecurityType != SecurityType.IndexOption || !_symbol.IsCanonical())
-            {
-                throw new ArgumentException($"Invalid symbol {symbol}. Only canonical {SecurityType.IndexOption} are supported.");
-            }
-
-            if (!_tickerWhitelist.Contains(symbol.ID.Symbol))
-            {
-                throw new ArgumentException($"Symbol {symbol} is not currently supported.");
-            }
-
-            if (_resolution != Resolution.Daily)
-            {
-                throw new ArgumentException($"Unsupported resolution {_resolution}. Only {Resolution.Daily} is currently supported.");
-            }
-
             _downloader = new FactSetDataProcessingDataDownloader(_factSetAuthConfig, _rawDataFolder);
         }
 
@@ -100,36 +82,48 @@ namespace QuantConnect.DataProcessing
         {
             var stopwatch = Stopwatch.StartNew();
 
-            Log.Trace($"FactSetDataProcessor.Run(): Start downloading/processing {_symbol} {_resolution} data.");
+            // Let's get the options ourselves so the data downloader doesn't have to do it for each tick type
+            var symbolsStr = string.Join(", ", _symbols.Select(symbol => symbol.Value));
+            Log.Trace($"FactSetDataProcessor.Run(): Fetching options for {symbolsStr}.");
+            var options = _symbols.Select(symbol => _downloader.GetOptionChains(symbol, _startDate, _startDate)).SelectMany(x => x).ToList();
 
-            // TODO: Since data is daily, should we normalize the start and end dates to the beginning and end of their years?
+            Log.Trace($"FactSetDataProcessor.Run(): Found {options.Count} options.");
+            Log.Trace($"FactSetDataProcessor.Run(): Start downloading/processing {symbolsStr} {_resolution} data.");
 
-            var tasks = new[] { TickType.Trade, TickType.OpenInterest }
-                .Select(tickType => Task.Run(() =>
+            var tickTypes = new[] { TickType.Trade, TickType.OpenInterest };
+            var source = options.Select(option => tickTypes.Select(tickType => (option, tickType))).SelectMany(x => x);
+            using var cancelationTokenSource = new CancellationTokenSource();
+
+            Parallel.ForEach(source,
+                new ParallelOptions()
                 {
-                    var trades = _downloader.Get(new DataDownloaderGetParameters(_symbol, _resolution, _startDate, _endDate, tickType));
-                    if (trades == null)
+                    MaxDegreeOfParallelism = 10,
+                    CancellationToken = cancelationTokenSource.Token
+                },
+                (t) =>
+                {
+                    var option = t.option;
+                    var tickType = t.tickType;
+
+                    var data = _downloader.Get(new DataDownloaderGetParameters(option, _resolution, _startDate, _endDate, tickType));
+                    if (data == null)
                     {
-                        Log.Trace($"FactSetDataProcessor.Run(): No {tickType} data found for {_symbol}.");
-                        return false;
+                        Log.Trace($"FactSetDataProcessor.Run(): No {tickType} data found for {symbolsStr}.");
+                        cancelationTokenSource.Cancel();
+                        return;
                     }
 
-                    var tradesWriter = new LeanDataWriter(_resolution, _symbol, _destinationFolder, tickType);
-                    tradesWriter.Write(trades);
-                    return true;
-                }))
-                .ToArray();
+                    var tradesWriter = new LeanDataWriter(_resolution, option, _destinationFolder, tickType);
+                    tradesWriter.Write(data);
+                });
 
-            Task.WaitAll(tasks);
-
-            if (tasks.All(task => !task.Result))
+            if (cancelationTokenSource.IsCancellationRequested)
             {
-                Log.Error($"FactSetDataProcessor.Run(): Failed to download/processing {_symbol} {_resolution} data.");
+                Log.Error($"FactSetDataProcessor.Run(): Failed to download/processing {symbolsStr} {_resolution} data.");
                 return false;
             }
 
             Log.Trace($"FactSetDataProcessor.Run(): Finished in {stopwatch.Elapsed.ToStringInvariant(null)}");
-
             return true;
         }
     }

@@ -197,7 +197,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return null;
             }
 
-            Log.Trace($"FactSetDataProvider.GetHistory(): Fetching historical data for {request.Symbol} {request.Resolution} " +
+            Log.Trace($"FactSetDataProvider.GetHistory(): Fetching historical data for {request.Symbol.Value} {request.Resolution} " +
                 $"{request.StartTimeUtc} - {request.EndTimeUtc}");
 
             if (request.TickType == TickType.Trade)
@@ -228,7 +228,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 throw new ArgumentException($"Unsupported security type {symbol.SecurityType}");
             }
 
-            Log.Trace($"FactSetDataProvider.GetOptionChain(): Requesting option chain for {symbol} - {date}");
+            Log.Trace($"FactSetDataProvider.GetOptionChain(): Requesting option chain for {symbol.Value} - {date}");
 
             return _optionChainProvider.GetOptionContractList(symbol, date);
         }
