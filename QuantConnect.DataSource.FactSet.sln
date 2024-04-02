@@ -9,6 +9,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataProcessing", "DataProce
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Tests", "tests\Tests.csproj", "{078083C8-B501-44C5-A708-DA93BAA31A0A}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "QuantConnect.Tests", "..\Lean\Tests\QuantConnect.Tests.csproj", "{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{078083C8-B501-44C5-A708-DA93BAA31A0A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{078083C8-B501-44C5-A708-DA93BAA31A0A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{078083C8-B501-44C5-A708-DA93BAA31A0A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
