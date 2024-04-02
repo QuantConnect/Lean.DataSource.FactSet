@@ -196,15 +196,9 @@ namespace QuantConnect.Lean.DataSource.FactSet
             var detailsBatches = Enumerable.Repeat(default(IEnumerable<OptionsReferences>), batchCount).ToList();
             CancellationTokenSource cts = new();
 
-            try
-            {
-                Parallel.ForEach(Enumerable.Range(0, batchCount),
-                    new ParallelOptions()
-                    {
-                        MaxDegreeOfParallelism = 10,
-                        CancellationToken = cts.Token,
-                    },
-                    (batchIndex) =>
+            var result = Parallel.ForEach(Enumerable.Range(0, batchCount),
+                new ParallelOptions() { MaxDegreeOfParallelism = 10 },
+                (batchIndex, loopState) =>
                     {
                         var batch = factSetSymbols.Skip(batchIndex * BatchSize).Take(BatchSize).ToList();
                         var details = GetOptionDetailsImpl(batch);
@@ -217,8 +211,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
                         detailsBatches[batchIndex] = details;
                     });
-            }
-            catch (OperationCanceledException)
+
+            if (!result.IsCompleted)
             {
                 throw new InvalidOperationException("Could not fetch option details for the given options FOS symbols.");
             }

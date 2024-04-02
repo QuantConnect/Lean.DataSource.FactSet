@@ -27,6 +27,7 @@ using QuantConnect.Util;
 namespace QuantConnect.DataProcessing
 {
     /// <summary>
+    /// Helper class to download, process and store FactSet data
     /// </summary>
     public class FactSetDataProcessor : IDisposable
     {
@@ -98,15 +99,8 @@ namespace QuantConnect.DataProcessing
 
             var tickTypes = new[] { TickType.Trade, TickType.OpenInterest };
             var source = options.Select(option => tickTypes.Select(tickType => (option, tickType))).SelectMany(x => x);
-            using var cancelationTokenSource = new CancellationTokenSource();
 
-            Parallel.ForEach(source,
-                new ParallelOptions()
-                {
-                    MaxDegreeOfParallelism = 10,
-                    CancellationToken = cancelationTokenSource.Token
-                },
-                (t) =>
+            var result = Parallel.ForEach(source, new ParallelOptions() { MaxDegreeOfParallelism = 10 }, (t, loopState) =>
                 {
                     var option = t.option;
                     var tickType = t.tickType;
@@ -115,7 +109,7 @@ namespace QuantConnect.DataProcessing
                     if (data == null)
                     {
                         Log.Trace($"FactSetDataProcessor.Run(): No {tickType} data found for {symbolsStr}.");
-                        cancelationTokenSource.Cancel();
+                    loopState.Stop();
                         return;
                     }
 
@@ -123,7 +117,7 @@ namespace QuantConnect.DataProcessing
                     tradesWriter.Write(data);
                 });
 
-            if (cancelationTokenSource.IsCancellationRequested)
+            if (!result.IsCompleted)
             {
                 Log.Error($"FactSetDataProcessor.Run(): Failed to download/processing {symbolsStr} {_resolution} data.");
                 return false;
