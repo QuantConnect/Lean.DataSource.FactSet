@@ -15,7 +15,6 @@
     <PackageReference Include="protobuf-net" Version="3.1.33" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
   </ItemGroup>
-  </ItemGroup>
 
   <ItemGroup>
     <Compile Remove="tests\**" />
