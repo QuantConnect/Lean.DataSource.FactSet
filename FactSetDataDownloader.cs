@@ -63,6 +63,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
         {
         }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="FactSetDataDownloader"/>
+        /// </summary>
+        /// <param name="dataProvider">The FactSet data provider instance to use</param>
         protected FactSetDataDownloader(FactSetDataProvider dataProvider)
         {
             _dataProvider = dataProvider;

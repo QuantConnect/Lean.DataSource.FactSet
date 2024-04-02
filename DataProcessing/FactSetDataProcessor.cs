@@ -91,7 +91,7 @@ namespace QuantConnect.DataProcessing
             // Let's get the options ourselves so the data downloader doesn't have to do it for each tick type
             var symbolsStr = string.Join(", ", _symbols.Select(symbol => symbol.Value));
             Log.Trace($"FactSetDataProcessor.Run(): Fetching options for {symbolsStr}.");
-            var options = _symbols.Select(symbol => _downloader.GetOptionChains(symbol, _startDate, _startDate)).SelectMany(x => x);
+            var options = _symbols.Select(symbol => _downloader.GetOptionChains(symbol, _startDate, _startDate)).SelectMany(x => x).ToList();
 
             Log.Trace($"FactSetDataProcessor.Run(): Found {options.Count} options.");
             Log.Trace($"FactSetDataProcessor.Run(): Start downloading/processing {symbolsStr} {_resolution} data.");

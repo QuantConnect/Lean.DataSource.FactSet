@@ -24,6 +24,7 @@ using Newtonsoft.Json;
 using QuantConnect.Configuration;
 using QuantConnect.Logging;
 using QuantConnect.Securities.IndexOption;
+using QuantConnect.Util;
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 
 namespace QuantConnect.DataProcessing
@@ -45,14 +46,14 @@ namespace QuantConnect.DataProcessing
             catch (Exception ex)
             {
                 Log.Error($"QuantConnect.DataProcessing.Program.Main(): {ex.Message}");
-                    Environment.Exit(1);
-                    return;
+                Environment.Exit(1);
+                return;
             }
 
             var symbols = tickers.Select(ticker =>
             {
-            var underlyingTicker = IndexOptionSymbol.MapToUnderlying(ticker);
-            var underlying = Symbol.Create(underlyingTicker, underlyingSecurityType, Market.USA);
+                var underlyingTicker = IndexOptionSymbol.MapToUnderlying(ticker);
+                var underlying = Symbol.Create(underlyingTicker, underlyingSecurityType, Market.USA);
                 return Symbol.CreateCanonicalOption(underlying, ticker, Market.USA, null);
             }).ToList();
 
@@ -119,10 +120,10 @@ namespace QuantConnect.DataProcessing
                 Log.Error(err, $"QuantConnect.DataProcessing.Program.Main(): The downloader/converter exited unexpectedly");
                 Environment.Exit(1);
             }
-            //finally
-            //{
-            //    processor.DisposeSafely();
-            //}
+            finally
+            {
+                processor.DisposeSafely();
+            }
 
             Environment.Exit(0);
         }

@@ -40,6 +40,7 @@ using System.Linq;
 namespace QuantConnect.Lean.DataSource.FactSet
 {
     /// <summary>
+    /// History provider implementation for FactSet
     /// </summary>
     public class FactSetDataProvider : SynchronizingHistoryProvider, IDisposable
     {
@@ -80,7 +81,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
         }
 
         /// <summary>
-        /// Creates a new instance of the <see cref="FactSetDataProvider"/> class
+        /// Creates a new instance of the <see cref="FactSetDataProvider"/> class.
+        /// The FactSet authentication configuration is read from the configuration file.
         /// </summary>
         public FactSetDataProvider()
             : this(JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(Config.Get("factset-auth-config")))

@@ -108,7 +108,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 throw new ArgumentException("Underlying security type must be either Equity or Index", nameof(underlying));
             }
 
-            if (canonical != null && !canonical.IsCanonical() && canonical.Underlying != underlying)
+            if (canonical != null && (!canonical.IsCanonical() || canonical.Underlying != underlying))
             {
                 throw new ArgumentException("Canonical symbol must be a canonical option symbol for the given underlying", nameof(canonical));
             }
@@ -117,26 +117,26 @@ namespace QuantConnect.Lean.DataSource.FactSet
             // instead of the /chains endpoint to reduce the chances of timeouts (reference: https://developer.factset.com/api-catalog/factset-options-api)
             // With the /option-screening endpoint we can split the request into two parts: one for calls and one for puts.
 
-            // 1=Equity, 2=Index Options
-            var optionType = underlying.SecurityType == SecurityType.Equity ? "1" : "2";
-            var tasks = new[] { OptionRight.Call, OptionRight.Put }
-                .Select(optionRight => Task.Run(() =>
-                {
-                    // 0=Call, 1=Put
-                    var factSetOptionRight = optionRight == OptionRight.Call ? "0" : "1";
-                    var request = new OptionScreeningRequest(ExchangeScreeningId.ALLUSAOPTS,
-                        OptionScreeningRequest.ConditionOneEnum.UNDERLYINGSECURITYE, underlying.Value,
-                        OptionScreeningRequest.ConditionTwoEnum.OPTIONTYPEE, optionType,
-                        OptionScreeningRequest.ConditionThreeEnum.CALLORPUTE, factSetOptionRight,
-                        date: FactSetUtils.ParseDate(date));
-
-                    CheckRequestRate();
-                    return _optionChainsScreeningApi.GetOptionsScreeningForList(request);
-                }))
-                .ToArray();
-
             var requestFunc = () =>
             {
+                // 1=Equity, 2=Index Options
+                var optionType = underlying.SecurityType == SecurityType.Equity ? "1" : "2";
+                var tasks = new[] { OptionRight.Call, OptionRight.Put }
+                    .Select(optionRight => Task.Run(() =>
+                    {
+                        // 0=Call, 1=Put
+                        var factSetOptionRight = optionRight == OptionRight.Call ? "0" : "1";
+                        var request = new OptionScreeningRequest(ExchangeScreeningId.ALLUSAOPTS,
+                            OptionScreeningRequest.ConditionOneEnum.UNDERLYINGSECURITYE, underlying.Value,
+                            OptionScreeningRequest.ConditionTwoEnum.OPTIONTYPEE, optionType,
+                            OptionScreeningRequest.ConditionThreeEnum.CALLORPUTE, factSetOptionRight,
+                            date: FormatDateForApi(date));
+
+                        CheckRequestRate();
+                        return _optionChainsScreeningApi.GetOptionsScreeningForList(request);
+                    }))
+                    .ToArray();
+
                 return tasks.SelectMany(task => task.Result.Data).Select(optionScreening => optionScreening.OptionId);
             };
 
@@ -264,19 +264,17 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return null;
             }
 
-            var startDate = FactSetUtils.ParseDate(startTime.Date);
-            var endDate = FactSetUtils.ParseDate(endTime.Date);
+            var startDate = FormatDateForApi(startTime.Date);
+            var endDate = FormatDateForApi(endTime.Date);
             var symbolList = new List<string>() { factSetSymbol };
 
             var getPricesTask = Task.Run(() =>
             {
+                var pricesRequest = new OptionsPricesRequest(symbolList, startDate, endDate, Frequency.D);
                 var getPrices = () =>
                 {
                     CheckRequestRate();
-                    var pricesRequest = new OptionsPricesRequest(symbolList, startDate, endDate, Frequency.D);
-                    var pricesResponse = _pricesVolumeApi.GetOptionsPricesForList(pricesRequest);
-
-                    return pricesResponse.Data;
+                    return _pricesVolumeApi.GetOptionsPricesForList(pricesRequest).Data;
                 };
 
                 if (!TryRequest(getPrices, out var prices, out var exception))
@@ -291,13 +289,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             var getVolumesTask = Task.Run(() =>
             {
+                var volumeRequest = new OptionsVolumeRequest(symbolList, startDate, endDate, Frequency.D);
                 var getVolumes = () =>
                 {
                     CheckRequestRate();
-                    var volumeRequest = new OptionsVolumeRequest(symbolList, startDate, endDate, Frequency.D);
-                    var volumeResponse = _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest);
-
-                    return volumeResponse.Data;
+                    return _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest).Data;
                 };
 
                 if (!TryRequest(getVolumes, out var volumes, out var exception))
@@ -392,13 +388,12 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return null;
             }
 
+            var startDate = FormatDateForApi(startTime);
+            var endDate = FormatDateForApi(endTime);
+            var volumeRequest = new OptionsVolumeRequest(new() { factSetSymbol }, startDate, endDate, Frequency.D);
+
             var getOpenInterest = () =>
             {
-                var startDate = FactSetUtils.ParseDate(startTime);
-                var endDate = FactSetUtils.ParseDate(endTime);
-
-                var volumeRequest = new OptionsVolumeRequest(new() { factSetSymbol }, startDate, endDate, Frequency.D);
-
                 CheckRequestRate();
                 return _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest).Data;
             };
@@ -421,6 +416,14 @@ namespace QuantConnect.Lean.DataSource.FactSet
             return result
                 .Select(point => new OpenInterest(point.Date.GetValueOrDefault(), symbol, point.OpenInterest.GetValueOrDefault()))
                 .Where(tick => tick.EndTime >= startTime && tick.Time <= endTime);
+        }
+
+        /// <summary>
+        /// Parse a date to the FactSet expected date format
+        /// </summary>
+        private static string FormatDateForApi(DateTime date)
+        {
+            return date.ToStringInvariant("yyyy-MM-dd");
         }
 
         /// <summary>
@@ -512,10 +515,6 @@ namespace QuantConnect.Lean.DataSource.FactSet
             }
 
             var folder = GetRawDataFolder(symbol, Resolution.Daily);
-            if (!Directory.Exists(folder))
-            {
-                Directory.CreateDirectory(folder);
-            }
             var pricesZipFile = Path.Combine(folder, "prices.zip");
             var pricesZipFileEntryName = symbol.Value.Replace(" ", "") + ".json";
 
@@ -556,11 +555,18 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
         private string GetRawDataFolder(Symbol symbol, Resolution resolution)
         {
-            return Path.Combine(_rawDataFolder,
+            var folder = Path.Combine(_rawDataFolder,
                 symbol.SecurityType.ToLower(),
                 symbol.ID.Market.ToLower(),
                 resolution.ToLower(),
                 symbol.ID.Symbol.ToLower());
+
+            if (!Directory.Exists(folder))
+            {
+                Directory.CreateDirectory(folder);
+            }
+
+            return folder;
         }
 
         private static bool ZipHasEntry(string zipPath, string entryFilename)
@@ -568,19 +574,19 @@ namespace QuantConnect.Lean.DataSource.FactSet
             if (!File.Exists(zipPath))
             {
                 return false;
-        }
+            }
 
             using var archive = ZipFile.OpenRead(zipPath);
             foreach (var entry in archive.Entries)
-        {
-                if (entry.FullName == entryFilename)
             {
+                if (entry.FullName == entryFilename)
+                {
                     return true;
                 }
             }
 
-                return false;
-            }
+            return false;
+        }
 
         #endregion
     }

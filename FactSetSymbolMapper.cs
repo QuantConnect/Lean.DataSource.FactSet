@@ -148,7 +148,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
                             // FactSet symbol might end with "-{Exchange OSI}" (e.g. -US) but it currently only supports US
                             var osiTicker = parts[0].PadRight(6, ' ') + parts[1].Split("-")[0];
-                            symbol = SymbolRepresentation.ParseOptionTickerOSI(osiTicker, securityType, market, optionStyle);
+                            symbol = SymbolRepresentation.ParseOptionTickerOSI(osiTicker, securityType, optionStyle, market);
                             break;
 
                         default:
@@ -278,7 +278,6 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
             if (detailsList == null)
             {
-                // TODO: THis should be a different exception type
                 throw new InvalidOperationException("Could not fetch option details for the given FOS symbols");
             }
 
