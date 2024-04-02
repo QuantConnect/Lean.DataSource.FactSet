@@ -59,7 +59,9 @@ namespace QuantConnect.DataLibrary.Tests
         public void ConvertsFactSetOCC21SymbolToLeanSymbol(string factSetOcc21Symbol, Symbol expectedLeanSymbol)
         {
             var mapper = new FactSetSymbolMapper();
-            var leanSymbol = mapper.GetLeanSymbol(factSetOcc21Symbol, expectedLeanSymbol.SecurityType, Market.USA);
+            var optionStyle = expectedLeanSymbol.SecurityType.IsOption() ? expectedLeanSymbol.ID.OptionStyle : OptionStyle.American;
+            var leanSymbol = mapper.ParseFactSetOCC21Symbol(factSetOcc21Symbol, expectedLeanSymbol.SecurityType, expectedLeanSymbol.ID.Market,
+                optionStyle);
             Assert.That(leanSymbol, Is.EqualTo(expectedLeanSymbol));
         }
 
