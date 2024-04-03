@@ -44,4 +44,4 @@ jobs:
             # Build
             dotnet build /p:Configuration=Release /v:quiet /p:WarningLevel=1 QuantConnect.DataSource.FactSet.sln
             # Run Tests
-            dotnet test ./tests/bin/Release/QuantConnect.DataLibrary.Tests.dll
+            dotnet test ./tests/bin/Release/net6.0/QuantConnect.DataLibrary.Tests.dll

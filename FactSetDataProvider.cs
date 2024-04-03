@@ -85,7 +85,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// The FactSet authentication configuration is read from the configuration file.
         /// </summary>
         public FactSetDataProvider()
-            : this(JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(Config.Get("factset-auth-config")))
+            : this(GetFactSetAuthConfigFromLeanConfig())
         {
         }
 
@@ -108,11 +108,20 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return;
             }
 
-            if (_factSetAuthConfiguration == null &&
-                parameters.Job is LiveNodePacket job &&
-                job.BrokerageData.TryGetValue("factset-auth-config", out var factSetAuthConfigStr))
+            if (_factSetAuthConfiguration == null && parameters.Job is LiveNodePacket job)
             {
-                _factSetAuthConfiguration = JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(factSetAuthConfigStr);
+                if (!job.BrokerageData.TryGetValue("factset-auth-config", out var factSetAuthConfigStr))
+                {
+                    if (job.BrokerageData.TryGetValue("factset-auth-config-file", out var factSetAuthConfigFilePath))
+                    {
+                        factSetAuthConfigStr = File.ReadAllText(factSetAuthConfigFilePath);
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(factSetAuthConfigStr))
+                {
+                    _factSetAuthConfiguration = JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(factSetAuthConfigStr);
+                }
             }
 
             Initialize();
@@ -284,6 +293,26 @@ namespace QuantConnect.Lean.DataSource.FactSet
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Gets the FactSet authentication configuration from the Lean configuration file, either directly as a json object or from a file.
+        /// </summary>
+        private static FactSetAuthenticationConfiguration? GetFactSetAuthConfigFromLeanConfig()
+        {
+            var authConfigStr = Config.Get("factset-auth-config");
+            if (string.IsNullOrEmpty(authConfigStr))
+            {
+                var authConfigFilePath = Config.Get("factset-auth-config-file");
+                if (string.IsNullOrEmpty(authConfigFilePath))
+                {
+                    return null;
+                }
+
+                authConfigStr = File.ReadAllText(authConfigFilePath);
+            }
+
+            return JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(authConfigStr);
         }
 
         private class ModulesReadLicenseRead : Api.RestResponse
