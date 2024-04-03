@@ -97,7 +97,7 @@ namespace QuantConnect.DataProcessing
             Log.Trace($"FactSetDataProcessor.Run(): Found {options.Count} options.");
             Log.Trace($"FactSetDataProcessor.Run(): Start downloading/processing {symbolsStr} {_resolution} data.");
 
-            var tickTypes = new[] { TickType.Trade, TickType.OpenInterest };
+            var tickTypes = new[] { TickType.Trade, TickType.Quote, TickType.OpenInterest };
             var source = options.Select(option => tickTypes.Select(tickType => (option, tickType))).SelectMany(x => x);
 
             var result = Parallel.ForEach(source, new ParallelOptions() { MaxDegreeOfParallelism = 10 }, (t, loopState) =>
