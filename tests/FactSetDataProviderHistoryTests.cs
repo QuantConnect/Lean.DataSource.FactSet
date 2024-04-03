@@ -68,9 +68,6 @@ namespace QuantConnect.DataLibrary.Tests
                 yield return new TestCaseData(spxOption, Resolution.Minute, TickType.Trade, TimeSpan.FromDays(30));
                 yield return new TestCaseData(spxOption, Resolution.Second, TickType.Trade, TimeSpan.FromDays(30));
                 yield return new TestCaseData(spxOption, Resolution.Tick, TickType.Trade, TimeSpan.FromDays(30));
-
-                // Unsupported tick types
-                yield return new TestCaseData(spxOption, Resolution.Daily, TickType.Quote, TimeSpan.FromDays(30));
             }
         }
 
@@ -93,6 +90,8 @@ namespace QuantConnect.DataLibrary.Tests
 
                 // 30 days until 2023/03/20, starts at 2024/02/19 (a holiday), 22 trading days (23 minus the holiday)
                 yield return new TestCaseData(spxOption, Resolution.Daily, TickType.Trade, endDate, TimeSpan.FromDays(30), 22);
+
+                yield return new TestCaseData(spxOption, Resolution.Daily, TickType.Quote, endDate, TimeSpan.FromDays(30), 22);
 
                 yield return new TestCaseData(spxOption, Resolution.Daily, TickType.OpenInterest, endDate, TimeSpan.FromDays(30), 22);
             }

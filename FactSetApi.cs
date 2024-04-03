@@ -303,6 +303,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
             var prices = getPricesTask.Result;
             var volumes = getVolumesTask.Result;
 
+            if (prices == null || volumes == null)
+            {
+                return null;
+            }
+
             // When data is requested for an invalid symbol, FactSet returns a single record with all fields set to null, except for the request id
             if (prices.Count == 1 && prices[0].FsymId == null)
             {
@@ -365,6 +370,71 @@ namespace QuantConnect.Lean.DataSource.FactSet
                     (decimal)priceData.Price.GetValueOrDefault(),
                     volume,
                     Time.OneDay);
+            }
+        }
+
+        /// <summary>
+        /// Gets the trades for the specified symbol and date range
+        /// </summary>
+        /// <param name="symbol">The symbol</param>
+        /// <param name="startTime">The start time</param>
+        /// <param name="endTime">The end time</param>
+        /// <returns>The list of trade bars for the specified symbol and date range</returns>
+        public IEnumerable<QuoteBar>? GetDailyOptionsQuotes(Symbol symbol, DateTime startTime, DateTime endTime)
+        {
+            if (!TryGetFactSetFosSymbol(symbol, out var factSetSymbol))
+            {
+                return null;
+            }
+
+            // TODO: Make this a method and share with GetDailyOptionsTrades
+
+            var startDate = FormatDateForApi(startTime.Date);
+            var endDate = FormatDateForApi(endTime.Date);
+            var symbolList = new List<string>() { factSetSymbol };
+
+            var pricesRequest = new OptionsPricesRequest(symbolList, startDate, endDate, Frequency.D);
+            var getPrices = () =>
+            {
+                CheckRequestRate();
+                return _pricesVolumeApi.GetOptionsPricesForList(pricesRequest).Data;
+            };
+
+            if (!TryRequest(getPrices, out var prices, out var exception))
+            {
+                Log.Error(exception, $"FactSetApi.GetDailyOptionsQuotes(): Error requesting option prices for {symbol} " +
+                    $"between {startTime} and {endTime}: {exception.Message}");
+                return null;
+            }
+
+            // When data is requested for an invalid symbol, FactSet returns a single record with all fields set to null, except for the request id
+            if (prices.Count == 1 && prices[0].FsymId == null)
+            {
+                Log.Error($"FactSetApi.GetDailyOptionsQuotes(): No data found for {symbol} between {startTime} and {endTime}");
+                return null;
+            }
+
+            // TODO: make this async
+            StoreRawDailyOptionPrices(symbol, prices);
+
+            return GetDailyOptionQuoteBars(symbol, prices).Where(bar => bar.EndTime >= startTime && bar.Time <= endTime);
+        }
+
+        private IEnumerable<QuoteBar> GetDailyOptionQuoteBars(Symbol symbol, List<OptionsPrices> prices)
+        {
+            foreach (var priceData in prices)
+            {
+                var priceDate = priceData.Date.GetValueOrDefault();
+                // Just for safety, shouldn't happen
+                if (priceDate == default)
+                {
+                    continue;
+                }
+
+                var bar = new QuoteBar(priceDate, symbol, null, decimal.Zero, null, decimal.Zero, Time.OneDay);
+                bar.UpdateQuote((decimal)priceData.PriceBid.GetValueOrDefault(), 0, (decimal)priceData.PriceAsk.GetValueOrDefault(), 0);
+
+                yield return bar;
             }
         }
 

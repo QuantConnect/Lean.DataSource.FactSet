@@ -58,7 +58,6 @@ namespace QuantConnect.Lean.DataSource.FactSet
         private bool _unsupportedAssetWarningSent;
         private bool _unsupportedSecurityTypeWarningSent;
         private bool _unsupportedResolutionWarningSent;
-        private bool _unsupportedTickTypeWarningSent;
 
         /// <summary>
         /// Creates a new instance of the <see cref="FactSetDataProvider"/> class
@@ -211,14 +210,14 @@ namespace QuantConnect.Lean.DataSource.FactSet
             Log.Trace($"FactSetDataProvider.GetHistory(): Fetching historical data for {request.Symbol.Value} {request.Resolution} " +
                 $"{request.StartTimeUtc} - {request.EndTimeUtc}");
 
-            if (request.TickType == TickType.Trade)
+            return request.TickType switch
             {
-                return _factSetApi?.GetDailyOptionsTrades(request.Symbol, request.StartTimeUtc, request.EndTimeUtc);
+                TickType.Trade => _factSetApi?.GetDailyOptionsTrades(request.Symbol, request.StartTimeUtc, request.EndTimeUtc),
+                TickType.Quote => _factSetApi?.GetDailyOptionsQuotes(request.Symbol, request.StartTimeUtc, request.EndTimeUtc),
+                TickType.OpenInterest => _factSetApi?.GetDailyOpenInterest(request.Symbol, request.StartTimeUtc, request.EndTimeUtc),
+                _ => throw new ArgumentOutOfRangeException(nameof(request.TickType), request.TickType, null)
+            };
             }
-
-            // After IsValidRequest, the only remaining option open interest
-            return _factSetApi?.GetDailyOpenInterest(request.Symbol, request.StartTimeUtc, request.EndTimeUtc);
-        }
 
         /// <summary>
         /// Method returns a collection of symbols that are available at the broker.
@@ -278,16 +277,6 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 {
                     Log.Trace($"FactSetDataProvider.GetHistory(): Unsupported resolution {request.Resolution}. Only {Resolution.Daily} is support");
                     _unsupportedResolutionWarningSent = true;
-                }
-                return false;
-            }
-
-            if (request.TickType == TickType.Quote)
-            {
-                if (!_unsupportedTickTypeWarningSent)
-                {
-                    Log.Trace($"FactSetDataProvider.GetHistory(): Unsupported tick type {request.TickType}");
-                    _unsupportedTickTypeWarningSent = true;
                 }
                 return false;
             }
