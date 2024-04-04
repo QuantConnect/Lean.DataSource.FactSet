@@ -188,7 +188,7 @@ namespace QuantConnect.DataLibrary.Tests
 
             var leanSymbolsFromFos = mapper.GetLeanSymbolsFromFactSetFosSymbols(fosSymbols, SecurityType.IndexOption).ToList();
 
-            Assert.That(leanSymbolsFromFos, Is.EqualTo(expectedLeanSymbols));
+            Assert.That(leanSymbolsFromFos, Is.EquivalentTo(expectedLeanSymbols));
         }
 
         private FactSetApi GetApi(FactSetSymbolMapper symbolMapper)

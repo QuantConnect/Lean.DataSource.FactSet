@@ -32,6 +32,7 @@ using FactSetOptionsClientConfiguration = FactSet.SDK.FactSetOptions.Client.Conf
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 using QuantConnect.Util;
 using System.IO.Compression;
+using System.Collections.Concurrent;
 
 namespace QuantConnect.Lean.DataSource.FactSet
 {
@@ -199,8 +200,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
         {
             // Let's get the details in batches to avoid requests timing out
             var batchCount = (int)Math.Ceiling((double)factSetSymbols.Count / BatchSize);
-            var detailsBatches = Enumerable.Repeat(default(IEnumerable<OptionsReferences>), batchCount).ToList();
-            var finishedBatchEvents = detailsBatches.Select(_ => new ManualResetEvent(false)).ToList();
+
+            var result = new BlockingCollection<OptionsReferences>(factSetSymbols.Count);
 
             Task.Run(() => Parallel.ForEach(Enumerable.Range(0, batchCount),
                 new ParallelOptions() { MaxDegreeOfParallelism = 16 },
@@ -211,29 +212,50 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
                         if (details == null)
                         {
-                        finishedBatchEvents[batchIndex].Set();
+                        result.CompleteAdding();
                         loopState.Stop();
                             return;
                         }
 
-                        detailsBatches[batchIndex] = details;
-                    finishedBatchEvents[batchIndex].Set();
+                    try
+                    {
+                        foreach (var detail in details)
+                        {
+                            result.Add(detail);
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // The collection was marked as complete, just stop
+                    }
                 }));
 
-            for (var i = 0; i < batchCount; i++)
+            var i = 0;
+            // We expect factSetSymbols.Count results, but we may not get them all if any request fails
+            for (; i < factSetSymbols.Count; i++)
             {
-                finishedBatchEvents[i].WaitOne();
-
-                var batch = detailsBatches[i];
-                if (batch == null)
+                OptionsReferences detail = null;
+                try
                 {
-                throw new InvalidOperationException("Could not fetch option details for the given options FOS symbols.");
+                    detail = result.Take();
+                }
+                // Some thread marked the collection as complete prematurely, so we break
+                catch (InvalidOperationException)
+                {
+                    break;
+                }
+
+                // Just a sanity check
+                if (detail != null)
+                {
+                    yield return detail;
+            }
             }
 
-                foreach (var symbol in batch)
+            // The collection was marked as complete before we got all the results, at least one request failed
+            if (i < factSetSymbols.Count)
                 {
-                    yield return symbol;
-                }
+                throw new InvalidOperationException("Could not fetch option details for the given options FOS symbols.");
             }
         }
 
