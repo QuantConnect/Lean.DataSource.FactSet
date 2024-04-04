@@ -200,8 +200,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
         {
             // Let's get the details in batches to avoid requests timing out
             var batchCount = (int)Math.Ceiling((double)factSetSymbols.Count / BatchSize);
-
-            var result = new BlockingCollection<OptionsReferences>(factSetSymbols.Count);
+            using var result = new BlockingCollection<OptionsReferences>(factSetSymbols.Count);
 
             Task.Run(() => Parallel.ForEach(Enumerable.Range(0, batchCount),
                 new ParallelOptions() { MaxDegreeOfParallelism = 16 },
