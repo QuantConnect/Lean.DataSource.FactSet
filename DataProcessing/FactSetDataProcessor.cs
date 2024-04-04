@@ -100,7 +100,7 @@ namespace QuantConnect.DataProcessing
             var tickTypes = new[] { TickType.Trade, TickType.Quote, TickType.OpenInterest };
             var source = options.Select(option => tickTypes.Select(tickType => (option, tickType))).SelectMany(x => x);
 
-            var result = Parallel.ForEach(source, new ParallelOptions() { MaxDegreeOfParallelism = 10 }, (t, loopState) =>
+            var result = Parallel.ForEach(source, new ParallelOptions() { MaxDegreeOfParallelism = 16 }, (t, loopState) =>
                 {
                     var option = t.option;
                     var tickType = t.tickType;

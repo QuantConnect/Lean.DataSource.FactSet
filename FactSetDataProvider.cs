@@ -58,6 +58,8 @@ namespace QuantConnect.Lean.DataSource.FactSet
         private bool _unsupportedAssetWarningSent;
         private bool _unsupportedSecurityTypeWarningSent;
         private bool _unsupportedResolutionWarningSent;
+        private bool _invalidDateRangeWarningSent;
+        private bool _futureDataWarningSent;
 
         /// <summary>
         /// Creates a new instance of the <see cref="FactSetDataProvider"/> class
@@ -217,7 +219,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 TickType.OpenInterest => _factSetApi?.GetDailyOpenInterest(request.Symbol, request.StartTimeUtc, request.EndTimeUtc),
                 _ => throw new ArgumentOutOfRangeException(nameof(request.TickType), request.TickType, null)
             };
-            }
+        }
 
         /// <summary>
         /// Method returns a collection of symbols that are available at the broker.
@@ -248,35 +250,69 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// </summary>
         /// <param name="request">The history request</param>
         /// <returns>returns true if Data Provider supports the specified request; otherwise false</returns>
-        private bool IsValidRequest(Data.HistoryRequest request)
+        public bool IsValidRequest(Data.HistoryRequest request)
         {
-            if (request.Symbol.Value.IndexOfInvariant("universe", true) != -1 || request.Symbol.IsCanonical())
+            return IsValidRequest(request.Symbol, request.Resolution, request.StartTimeUtc, request.EndTimeUtc) && !request.Symbol.IsCanonical();
+        }
+
+        /// <summary>
+        /// Checks if this data provider supports requesting data for the specified symbol and resolution
+        /// </summary>
+        /// <param name="symbol">The symbol</param>
+        /// <param name="resolution">The resolution</param>
+        /// <param name="startTimeUtc">The UTC start date</param>
+        /// <param name="endTimeUtc">The UTC end date</param>
+        /// <returns>returns true if Data Provider supports the specified request; otherwise false</returns>
+        public bool IsValidRequest(Symbol symbol,  Resolution resolution, DateTime startTimeUtc, DateTime endTimeUtc)
+        {
+            if (symbol.Value.IndexOfInvariant("universe", true) != -1)
             {
                 if (!_unsupportedAssetWarningSent)
                 {
-                    Log.Trace($"FactSetDataProvider.GetHistory(): Unsupported asset type {request.Symbol}");
                     _unsupportedAssetWarningSent = true;
+                    Log.Trace($"FactSetDataProvider.IsValidRequest(): Unsupported asset type {symbol}");
                 }
                 return false;
             }
 
-            if (!_supportedSecurityTypes.Contains(request.Symbol.SecurityType))
+            if (!_supportedSecurityTypes.Contains(symbol.SecurityType))
             {
                 if (!_unsupportedSecurityTypeWarningSent)
                 {
-                    Log.Trace($"FactSetDataProvider.GetHistory(): Unsupported security type {request.Symbol.SecurityType}. " +
-                        $"Only {string.Join(", ", _supportedSecurityTypes)} supported");
                     _unsupportedSecurityTypeWarningSent = true;
+                    Log.Trace($"FactSetDataProvider.IsValidRequest(): Unsupported security type {symbol.SecurityType}. " +
+                        $"Only {string.Join(", ", _supportedSecurityTypes)} supported");
                 }
                 return false;
             }
 
-            if (request.Resolution != Resolution.Daily)
+            if (resolution != Resolution.Daily)
             {
                 if (!_unsupportedResolutionWarningSent)
                 {
-                    Log.Trace($"FactSetDataProvider.GetHistory(): Unsupported resolution {request.Resolution}. Only {Resolution.Daily} is support");
                     _unsupportedResolutionWarningSent = true;
+                    Log.Trace($"FactSetDataProvider.IsValidRequest(): Unsupported resolution {resolution}. Only {Resolution.Daily} is support");
+                }
+                return false;
+            }
+
+            if (endTimeUtc < startTimeUtc)
+            {
+                if (!_invalidDateRangeWarningSent)
+                {
+                    _invalidDateRangeWarningSent = true;
+                    Log.Trace($"FactSetDataProvider.IsValidRequest(): Invalid date range {startTimeUtc} - {endTimeUtc}");
+                }
+                return false;
+            }
+
+            var now = DateTime.UtcNow.Date;
+            if (startTimeUtc > now || endTimeUtc > now)
+            {
+                if (!_futureDataWarningSent)
+                {
+                    _futureDataWarningSent = true;
+                    Log.Trace($"FactSetDataProvider.IsValidRequest(): Requesting future data {startTimeUtc} - {endTimeUtc}");
                 }
                 return false;
             }

@@ -137,17 +137,23 @@ namespace QuantConnect.Lean.DataSource.FactSet
                     }))
                     .ToArray();
 
-                return tasks.SelectMany(task => task.Result.Data).Select(optionScreening => optionScreening.OptionId);
+                return tasks.SelectMany(task => task.Result.Data).Select(optionScreening => optionScreening.OptionId).ToList();
             };
 
-            if (!TryRequest(requestFunc, out var optionsFosIds, out var exception))
+            if (!TryRequest(requestFunc, out var optionsFosIds, out var exception, out var errorMessage))
             {
-                Log.Error(exception, $"FactSetApi.GetOptionsChain(): Error requesting option chain for {underlying}: {exception.Message}");
+                Log.Error(exception, $"FactSetApi.GetOptionsChain(): Error requesting option chain for {underlying}: {errorMessage}");
+                return Enumerable.Empty<Symbol>();
+            }
+
+            if (optionsFosIds.Any(id => string.IsNullOrEmpty(id)))
+            {
+                Log.Error($"FactSetApi.GetOptionsChain(): No options found for {underlying.Value} on {date}.");
                 return Enumerable.Empty<Symbol>();
             }
 
             var optionSecurityType = Symbol.GetOptionTypeFromUnderlying(underlying.SecurityType);
-            var leanSymbols = _symbolMapper.GetLeanSymbolsFromFactSetFosSymbols(optionsFosIds.ToList(), optionSecurityType);
+            var leanSymbols = _symbolMapper.GetLeanSymbolsFromFactSetFosSymbols(optionsFosIds, optionSecurityType);
 
             if (leanSymbols == null)
             {
@@ -194,10 +200,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
             // Let's get the details in batches to avoid requests timing out
             var batchCount = (int)Math.Ceiling((double)factSetSymbols.Count / BatchSize);
             var detailsBatches = Enumerable.Repeat(default(IEnumerable<OptionsReferences>), batchCount).ToList();
-            CancellationTokenSource cts = new();
+            var finishedBatchEvents = detailsBatches.Select(_ => new ManualResetEvent(false)).ToList();
 
-            var result = Parallel.ForEach(Enumerable.Range(0, batchCount),
-                new ParallelOptions() { MaxDegreeOfParallelism = 10 },
+            Task.Run(() => Parallel.ForEach(Enumerable.Range(0, batchCount),
+                new ParallelOptions() { MaxDegreeOfParallelism = 16 },
                 (batchIndex, loopState) =>
                     {
                         var batch = factSetSymbols.Skip(batchIndex * BatchSize).Take(BatchSize).ToList();
@@ -205,20 +211,25 @@ namespace QuantConnect.Lean.DataSource.FactSet
 
                         if (details == null)
                         {
-                            cts.Cancel();
+                        finishedBatchEvents[batchIndex].Set();
+                        loopState.Stop();
                             return;
                         }
 
                         detailsBatches[batchIndex] = details;
-                    });
+                    finishedBatchEvents[batchIndex].Set();
+                }));
 
-            if (!result.IsCompleted)
+            for (var i = 0; i < batchCount; i++)
             {
+                finishedBatchEvents[i].WaitOne();
+
+                var batch = detailsBatches[i];
+                if (batch == null)
+                {
                 throw new InvalidOperationException("Could not fetch option details for the given options FOS symbols.");
             }
 
-            foreach (var batch in detailsBatches)
-            {
                 foreach (var symbol in batch)
                 {
                     yield return symbol;
@@ -235,9 +246,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return _optionsReferenceApi.GetOptionsReferencesForList(request).Data;
             };
 
-            if (!TryRequest(requestFunc, out var result, out var exception))
+            if (!TryRequest(requestFunc, out var result, out var exception, out var errorMessage))
             {
-                Log.Error(exception, $"FactSetApi.GetOptionDetails(): Error requesting option details for given FOS symbols: {exception.Message}");
+                var apiException = exception as ApiException;
+
+                Log.Error(exception, $"FactSetApi.GetOptionDetails(): Error requesting option details for given FOS symbols: {errorMessage}");
                 return null;
             }
 
@@ -271,10 +284,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
                     return _pricesVolumeApi.GetOptionsPricesForList(pricesRequest).Data;
                 };
 
-                if (!TryRequest(getPrices, out var prices, out var exception))
+                if (!TryRequest(getPrices, out var prices, out var exception, out var errorMessage))
                 {
                     Log.Error(exception, $"FactSetApi.GetDailyOptionsTrades(): Error requesting option prices for {symbol} " +
-                        $"between {startTime} and {endTime}: {exception.Message}");
+                        $"between {startTime} and {endTime}: {errorMessage}");
                     return null;
                 }
 
@@ -290,10 +303,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
                     return _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest).Data;
                 };
 
-                if (!TryRequest(getVolumes, out var volumes, out var exception))
+                if (!TryRequest(getVolumes, out var volumes, out var exception, out var errorMessage))
                 {
                     Log.Error(exception, $"FactSetApi.GetDailyOptionsTrades(): Error requesting option volumes for {symbol} " +
-                        $"between {startTime} and {endTime}: {exception.Message}");
+                        $"between {startTime} and {endTime}: {errorMessage}");
                     return null;
                 }
 
@@ -400,10 +413,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return _pricesVolumeApi.GetOptionsPricesForList(pricesRequest).Data;
             };
 
-            if (!TryRequest(getPrices, out var prices, out var exception))
+            if (!TryRequest(getPrices, out var prices, out var exception, out var errorMessage))
             {
                 Log.Error(exception, $"FactSetApi.GetDailyOptionsQuotes(): Error requesting option prices for {symbol} " +
-                    $"between {startTime} and {endTime}: {exception.Message}");
+                    $"between {startTime} and {endTime}: {errorMessage}");
                 return null;
             }
 
@@ -462,9 +475,9 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 return _pricesVolumeApi.GetOptionsVolumeForList(volumeRequest).Data;
             };
 
-            if (!TryRequest(getOpenInterest, out var result, out var exception))
+            if (!TryRequest(getOpenInterest, out var result, out var exception, out var errorMessage))
             {
-                Log.Error(exception, $"FactSetApi.GetDailyOpenInterest(): Error requesting option volume for {symbol}: {exception.Message}");
+                Log.Error(exception, $"FactSetApi.GetDailyOpenInterest(): Error requesting option volume for {symbol}: {errorMessage}");
                 return null;
             }
 
@@ -494,10 +507,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// Try the given callback while getting a "request timeout" or "too many requests" response multiple times,
         /// returning the result or exception if the max attempts are reached
         /// </summary>
-        private bool TryRequest<T>(Func<T> request, out T result, out Exception? exception)
+        private bool TryRequest<T>(Func<T> request, out T result, out Exception? exception, out string errorMessage)
         {
             result = default;
             exception = null;
+            errorMessage = string.Empty;
 
             const int maxAttempts = 5;
             for (var i = 1; i <= maxAttempts; i++)
@@ -510,9 +524,9 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 catch (Exception e)
                 {
                     var apiError = default(ApiException);
-                    if (e is ApiException apiException)
+                    if (e is ApiException apiEx)
                     {
-                        apiError = apiException;
+                        apiError = apiEx;
                     }
                     else if (e is AggregateException aggregateEx)
                     {
@@ -538,7 +552,17 @@ namespace QuantConnect.Lean.DataSource.FactSet
                         }
                     }
 
-                    exception = apiError ?? e;
+                    if (apiError != null)
+                    {
+                        exception = apiError;
+                        errorMessage = apiError.ErrorContent.ToString() ?? string.Empty;
+                    }
+                    else
+                    {
+                        exception = e;
+                        errorMessage = e.Message;
+                    }
+
                     return false;
                 }
             }
@@ -550,7 +574,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
         {
             if (_rateLimiter.IsRateLimited)
             {
-                Log.Trace("FactSetApi.CheckRequestRate(): Rest API calls are limited; waiting to proceed.");
+                Log.Debug("FactSetApi.CheckRequestRate(): Rest API calls are limited; waiting to proceed.");
             }
             _rateLimiter.WaitToProceed();
         }

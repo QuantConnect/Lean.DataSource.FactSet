@@ -274,7 +274,30 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 throw new ArgumentException($"Invalid symbol security type {securityType}", nameof(securityType));
             }
 
-            var detailsList = _api.GetOptionDetails(fosSymbols);
+            var cachedSymbols = new List<Symbol>();
+            var missingSymbols = new List<string>();
+
+            lock (_fosSymbolsLock)
+            {
+                foreach (var fosSymbol in fosSymbols)
+                {
+                    if (_factSetFosToLeanSymbolCache.TryGetValue(fosSymbol, out var leanSymbol))
+                    {
+                        cachedSymbols.Add(leanSymbol);
+                    }
+                    else
+                    {
+                        missingSymbols.Add(fosSymbol);
+                    }
+                }
+            }
+
+            foreach (var symbol in cachedSymbols)
+            {
+                yield return symbol;
+            }
+
+            var detailsList = _api.GetOptionDetails(missingSymbols);
 
             if (detailsList == null)
             {

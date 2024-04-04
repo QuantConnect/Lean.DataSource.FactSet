@@ -95,6 +95,11 @@ namespace QuantConnect.Lean.DataSource.FactSet
             var endUtc = parameters.EndUtc;
             var tickType = parameters.TickType;
 
+            if (!_dataProvider.IsValidRequest(symbol, resolution, startUtc, endUtc))
+            {
+                return null;
+            }
+
             var dataType = LeanData.GetDataType(resolution, tickType);
             var exchangeHours = _marketHoursDatabase.GetExchangeHours(symbol.ID.Market, symbol, symbol.SecurityType);
             var dataTimeZone = _marketHoursDatabase.GetDataTimeZone(symbol.ID.Market, symbol, symbol.SecurityType);
@@ -122,12 +127,12 @@ namespace QuantConnect.Lean.DataSource.FactSet
         private IEnumerable<BaseData>? GetCanonicalOptionHistory(Symbol symbol, DateTime startUtc, DateTime endUtc, Type dataType,
             Resolution resolution, SecurityExchangeHours exchangeHours, DateTimeZone dataTimeZone, TickType tickType)
         {
-            var symbols = GetOptions(symbol, startUtc, endUtc).ToList();
+            var symbols = GetOptions(symbol, startUtc, endUtc);
 
             var histories = new ConcurrentBag<IEnumerable<BaseData>?>();
 
             // Symbol can have a lot of Option parameters
-            Parallel.ForEach(symbols, new ParallelOptions() { MaxDegreeOfParallelism = 10 }, targetSymbol =>
+            Parallel.ForEach(symbols, new ParallelOptions() { MaxDegreeOfParallelism = 16 }, targetSymbol =>
             {
                 var historyRequest = new HistoryRequest(startUtc, endUtc, dataType, targetSymbol, resolution, exchangeHours, dataTimeZone,
                     resolution, true, false, DataNormalizationMode.Raw, tickType);
@@ -149,13 +154,12 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// </summary>
         protected virtual IEnumerable<Symbol> GetOptions(Symbol symbol, DateTime startUtc, DateTime endUtc)
         {
-            foreach (var date in Time.EachDay(startUtc.Date, endUtc.Date))
-            {
-                foreach (var option in _dataProvider.GetOptionChain(symbol, date))
-                {
-                    yield return option;
-                }
-            }
+            var exchangeHours = _marketHoursDatabase.GetExchangeHours(symbol.ID.Market, symbol, symbol.SecurityType);
+
+            return Time.EachTradeableDay(exchangeHours, startUtc.Date, endUtc.Date)
+                .Select(date => _dataProvider.GetOptionChain(symbol, date))
+                .SelectMany(x => x)
+                .Distinct();
         }
     }
 }
