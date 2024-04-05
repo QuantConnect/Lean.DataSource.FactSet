@@ -13,9 +13,9 @@
  * limitations under the License.
 */
 
-using QuantConnect.Lean.DataSource.FactSet;
+using FactSetSDK = FactSet.SDK;
 
-namespace QuantConnect.DataProcessing
+namespace QuantConnect.Lean.DataSource.FactSet
 {
     /// <summary>
     /// The only purpose of this class is to provide a way to access the <see cref="FactSetDataProvider"/> class and use its constructor
@@ -25,12 +25,12 @@ namespace QuantConnect.DataProcessing
     /// without exposing its additional capabilities of storing the raw data downloaded from FactSet, which is only useful
     /// for the Data Processing program.
     /// </summary>
-    internal class FactSetDataProcessingDataProvider : FactSetDataProvider
+    public class FactSetDataProcessingDataProvider : FactSetDataProvider
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="FactSetDataProcessingDataProvider"/>
         /// </summary>
-        public FactSetDataProcessingDataProvider(FactSet.SDK.Utils.Authentication.Configuration factSetAuthConfig, string rawDataFolder)
+        public FactSetDataProcessingDataProvider(FactSetSDK.Utils.Authentication.Configuration factSetAuthConfig, string rawDataFolder)
             : base(factSetAuthConfig, rawDataFolder)
         {
         }
