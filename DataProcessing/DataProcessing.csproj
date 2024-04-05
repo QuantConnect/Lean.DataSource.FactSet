@@ -6,7 +6,7 @@
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 	</PropertyGroup>
 	<ItemGroup>
-		<ProjectReference Include="..\QuantConnect.DataSource.csproj" />
+		<ProjectReference Include="..\QuantConnect.FactSet\QuantConnect.DataSource.FactSet.csproj" />
 	</ItemGroup>
 	<ItemGroup>
 		<None Remove="config.json" />

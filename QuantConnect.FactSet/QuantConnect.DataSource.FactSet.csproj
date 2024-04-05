@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+		<Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+		<TargetFramework>net6.0</TargetFramework>
+		<Product>QuantConnect.Lean.DataSource.FactSet</Product>
+		<AssemblyName>QuantConnect.Lean.DataSource.FactSet</AssemblyName>
+		<RootNamespace>QuantConnect.Lean.DataSource.FactSet</RootNamespace>
+		<AssemblyTitle>QuantConnect.Lean.DataSource.FactSet</AssemblyTitle>
+		<OutputType>Library</OutputType>
+		<OutputPath>bin\$(Configuration)\</OutputPath>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<Description>QuantConnect LEAN FactSet Data Source: FactSet Data Source plugin for Lean</Description>
+
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
+
+	<PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+		<DebugType>full</DebugType>
+		<OutputPath>bin\Debug\</OutputPath>
+	</PropertyGroup>
+
+	<PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+		<DebugType>pdbonly</DebugType>
+		<OutputPath>bin\Release\</OutputPath>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="..\..\Lean\Common\Properties\SharedAssemblyInfo.cs" Link="Properties\SharedAssemblyInfo.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FactSet.SDK.FactSetOptions" Version="1.0.8" />
+		<PackageReference Include="FactSet.SDK.Utils" Version="1.0.0" />
+		<PackageReference Include="QuantConnect.Lean.Engine" Version="2.5.*" />
+		<PackageReference Include="protobuf-net" Version="3.1.33" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+	</ItemGroup>
+</Project>
