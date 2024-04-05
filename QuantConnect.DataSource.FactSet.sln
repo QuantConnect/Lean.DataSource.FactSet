@@ -1,0 +1,40 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "QuantConnect.DataSource", "QuantConnect.DataSource.csproj", "{FBA4214D-0148-41A9-9C9E-42F17305578F}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataProcessing", "DataProcessing\DataProcessing.csproj", "{0CE7E210-7ECF-426E-9751-5FB515EC91DA}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Tests", "tests\Tests.csproj", "{078083C8-B501-44C5-A708-DA93BAA31A0A}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "QuantConnect.Tests", "..\Lean\Tests\QuantConnect.Tests.csproj", "{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FBA4214D-0148-41A9-9C9E-42F17305578F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FBA4214D-0148-41A9-9C9E-42F17305578F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FBA4214D-0148-41A9-9C9E-42F17305578F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FBA4214D-0148-41A9-9C9E-42F17305578F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0CE7E210-7ECF-426E-9751-5FB515EC91DA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0CE7E210-7ECF-426E-9751-5FB515EC91DA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0CE7E210-7ECF-426E-9751-5FB515EC91DA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0CE7E210-7ECF-426E-9751-5FB515EC91DA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{078083C8-B501-44C5-A708-DA93BAA31A0A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{078083C8-B501-44C5-A708-DA93BAA31A0A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{078083C8-B501-44C5-A708-DA93BAA31A0A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{078083C8-B501-44C5-A708-DA93BAA31A0A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6AA5B05-7897-4B6E-AE64-45A8CBF11D8C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

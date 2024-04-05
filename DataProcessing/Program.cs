@@ -14,67 +14,117 @@
 */
 
 using System;
-using System.IO;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using FactSet.SDK.Utils.Authentication;
+using Newtonsoft.Json;
 using QuantConnect.Configuration;
 using QuantConnect.Logging;
+using QuantConnect.Securities.IndexOption;
 using QuantConnect.Util;
+using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 
 namespace QuantConnect.DataProcessing
 {
-    /// <summary>
-    /// Entrypoint for the data downloader/converter
-    /// </summary>
     public class Program
     {
-        /// <summary>
-        /// Entrypoint of the program
-        /// </summary>
-        /// <returns>Exit code. 0 equals successful, and any other value indicates the downloader/converter failed.</returns>
+        public static string DataFleetDeploymentDate = "QC_DATAFLEET_DEPLOYMENT_DATE";
+
         public static void Main()
         {
-            // Get the config values first before running. These values are set for us
-            // automatically to the value set on the website when defining this data type
-            var destinationDirectory = Path.Combine(
-                Config.Get("temp-output-directory", "/temp-output-directory"),
-                "alternative",
-                "vendorname");
+            var tickers = Config.GetValue<List<string>>("tickers");
+            var securityType = Config.GetValue("security-type", SecurityType.IndexOption);
 
-            MyCustomDataDownloader instance = null;
+            SecurityType underlyingSecurityType;
             try
             {
-                // Pass in the values we got from the configuration into the downloader/converter.
-                instance = new MyCustomDataDownloader(destinationDirectory);
+                underlyingSecurityType = Symbol.GetUnderlyingFromOptionType(securityType);
             }
-            catch (Exception err)
+            catch (Exception ex)
             {
-                Log.Error(err, $"QuantConnect.DataProcessing.Program.Main(): The downloader/converter for {MyCustomDataDownloader.VendorDataName} {MyCustomDataDownloader.VendorDataName} data failed to be constructed");
+                Log.Error($"QuantConnect.DataProcessing.Program.Main(): {ex.Message}");
+                Environment.Exit(1);
+                return;
+            }
+
+            var symbols = tickers.Select(ticker =>
+            {
+                var underlyingTicker = IndexOptionSymbol.MapToUnderlying(ticker);
+                var underlying = Symbol.Create(underlyingTicker, underlyingSecurityType, Market.USA);
+                return Symbol.CreateCanonicalOption(underlying, ticker, Market.USA, null);
+            }).ToList();
+
+            var resolution = Config.GetValue("resolution", Resolution.Daily);
+
+            var startDate = Config.GetValue<DateTime>("start-date");
+            var endDate = startDate;
+            if (startDate != default)
+            {
+                endDate = DateTime.UtcNow.Date.AddDays(-1);
+            }
+            else
+            {
+                var startDateStr = Environment.GetEnvironmentVariable(DataFleetDeploymentDate);
+                if (string.IsNullOrEmpty(startDateStr))
+                {
+                    Log.Error($"QuantConnect.DataProcessing.Program.Main(): The start date was neither set in the configuration " +
+                        $"nor in the {DataFleetDeploymentDate} environment variable.");
+                    Environment.Exit(1);
+                }
+                startDate = DateTime.ParseExact(startDateStr, "yyyyMMdd", CultureInfo.InvariantCulture);
+                endDate = startDate;
+            }
+
+            var factSetAuthConfig = JsonConvert.DeserializeObject<FactSetAuthenticationConfiguration>(Config.Get("factset-auth-config"));
+            if (factSetAuthConfig == null)
+            {
+                Log.Error($"QuantConnect.DataProcessing.Program.Main(): The FactSet authentication configuration was not set.");
                 Environment.Exit(1);
             }
 
-            // No need to edit anything below here for most use cases.
-            // The downloader/converter is ran and cleaned up for you safely here.
+            var tickerWhitelist = Config.GetValue<List<string>>("factset-ticker-whitelist");
+
+            // Get the config values first before running. These values are set for us
+            // automatically to the value set on the website when defining this data type
+            var dataFolder = Config.Get("temp-output-directory", "/temp-output-directory");
+            var rawDataFolder = Config.Get("raw-data-folder", "/raw");
+
+            var tickersStr = string.Join(", ", tickers);
+            Log.Trace($"DataProcessing.Main(): Processing {tickersStr} | {resolution} | {startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}");
+
+            FactSetDataProcessor processor = null;
             try
             {
-                // Run the data downloader/converter.
-                var success = instance.Run();
-                if (!success)
+                processor = new FactSetDataProcessor(factSetAuthConfig, symbols, resolution, startDate, endDate, dataFolder, rawDataFolder,
+                    tickerWhitelist);
+            }
+            catch (Exception err)
+            {
+                Log.Error(err, $"QuantConnect.DataProcessing.Program.Main(): The downloader/converter failed to be instantiated");
+                Environment.Exit(1);
+            }
+
+            try
+            {
+                if (!processor.Run())
                 {
-                    Log.Error($"QuantConnect.DataProcessing.Program.Main(): Failed to download/process {MyCustomDataDownloader.VendorName} {MyCustomDataDownloader.VendorDataName} data");
+                    Log.Error($"QuantConnect.DataProcessing.Program.Main(): Failed to download/process data");
                     Environment.Exit(1);
                 }
             }
             catch (Exception err)
             {
-                Log.Error(err, $"QuantConnect.DataProcessing.Program.Main(): The downloader/converter for {MyCustomDataDownloader.VendorDataName} {MyCustomDataDownloader.VendorDataName} data exited unexpectedly");
+                Log.Error(err, $"QuantConnect.DataProcessing.Program.Main(): The downloader/converter exited unexpectedly");
                 Environment.Exit(1);
             }
             finally
             {
-                // Run cleanup of the downloader/converter once it has finished or crashed.
-                instance.DisposeSafely();
+                processor.DisposeSafely();
             }
-            
-            // The downloader/converter was successful
+
             Environment.Exit(0);
         }
     }
