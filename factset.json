@@ -12,5 +12,23 @@
 	],
 	"data-supported": [ "IndexOption" ], 
 	"more-information": "https://www.factset.com/",
-	"documentation": ""
+	"documentation": "",
+	"module-specification": {
+		"download": {
+			"data-types": [
+				"OpenInterest",
+				"Trade",
+				"Quote"
+			],
+			"resolutions": [
+				"Daily"
+			],
+			"security-types": [
+				"IndexOption"
+			],
+			"markets": [
+				"USA"
+			]
+		}
+	}
 }
