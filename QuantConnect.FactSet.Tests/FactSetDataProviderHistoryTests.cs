@@ -37,7 +37,7 @@ namespace QuantConnect.DataLibrary.Tests
         public void SetUp()
         {
             _historyDataProvider = new FactSetDataProvider();
-            _historyDataProvider.Initialize(new HistoryProviderInitializeParameters(null, null, null, null, null, null, null, false, null, null));
+            _historyDataProvider.Initialize(new HistoryProviderInitializeParameters(null, null, null, null, null, null, null, false, null, null, null));
         }
 
         [TearDown]
