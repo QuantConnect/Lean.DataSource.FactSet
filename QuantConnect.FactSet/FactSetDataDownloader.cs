@@ -70,7 +70,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
         protected FactSetDataDownloader(FactSetDataProvider dataProvider)
         {
             _dataProvider = dataProvider;
-            _dataProvider.Initialize(new HistoryProviderInitializeParameters(null, null, null, null, null, null, null, false, null, null));
+            _dataProvider.Initialize(new HistoryProviderInitializeParameters(null, null, null, null, null, null, null, false, null, null, null));
         }
 
         /// <summary>
