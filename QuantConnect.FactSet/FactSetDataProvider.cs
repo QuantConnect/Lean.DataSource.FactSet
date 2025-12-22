@@ -28,14 +28,11 @@ using QuantConnect.Configuration;
 using QuantConnect.Packets;
 using FactSetAuthenticationConfiguration = FactSet.SDK.Utils.Authentication.Configuration;
 using QuantConnect.Api;
-using RestSharp;
-using System.IO;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
 using QuantConnect.Util;
 using System.Net;
-using System.Linq;
 
 namespace QuantConnect.Lean.DataSource.FactSet
 {
@@ -263,7 +260,7 @@ namespace QuantConnect.Lean.DataSource.FactSet
         /// <param name="startTimeUtc">The UTC start date</param>
         /// <param name="endTimeUtc">The UTC end date</param>
         /// <returns>returns true if Data Provider supports the specified request; otherwise false</returns>
-        public bool IsValidRequest(Symbol symbol,  Resolution resolution, DateTime startTimeUtc, DateTime endTimeUtc)
+        public bool IsValidRequest(Symbol symbol, Resolution resolution, DateTime startTimeUtc, DateTime endTimeUtc)
         {
             if (symbol.Value.IndexOfInvariant("universe", true) != -1)
             {
@@ -409,8 +406,10 @@ namespace QuantConnect.Lean.DataSource.FactSet
                 {
                     information.Add("organizationId", organizationId);
                 }
-                var request = new RestRequest("modules/license/read", Method.POST) { RequestFormat = DataFormat.Json };
-                request.AddParameter("application/json", JsonConvert.SerializeObject(information), ParameterType.RequestBody);
+
+                // Create HTTP request
+                using var request = ApiUtils.CreateJsonPostRequest("modules/license/read", information);
+
                 api.TryRequest(request, out ModulesReadLicenseRead result);
                 if (!result.Success)
                 {
