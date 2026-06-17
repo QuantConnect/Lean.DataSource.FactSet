@@ -4,20 +4,19 @@ on:
   push:
     branches: ['*']
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
+    container:
+        image: quantconnect/lean:foundation
+        options: --cpus 12 --memory 12g
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-
-      - name: Liberate disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: true
-          large-packages: false
-          docker-images: false
-          swap-storage: false
 
       - name: Checkout Lean Same Branch
         id: lean-same-branch
@@ -38,14 +37,10 @@ jobs:
       - name: Move Lean
         run: mv Lean ../Lean
 
-      - name: Run Image
-        uses: addnab/docker-run-action@v3
-        with:
-          image: quantconnect/lean:foundation
-          options: -v /home/runner/work:/__w --workdir /__w/Lean.DataSource.FactSet/Lean.DataSource.FactSet
-          shell: bash
-          run: |
-            # Build
-            dotnet build /p:Configuration=Release /v:quiet /p:WarningLevel=1 QuantConnect.DataSource.FactSet.sln
-            # Run Tests
-            dotnet test ./QuantConnect.FactSet.Tests/bin/Release/net9.0/QuantConnect.DataLibrary.Tests.dll
+      - name: Run build and tests
+        run: |
+          # Build
+          dotnet build /p:Configuration=Release /v:quiet /p:WarningLevel=1 QuantConnect.DataSource.FactSet.sln
+          # Run Tests
+          dotnet test ./QuantConnect.FactSet.Tests/bin/Release/net9.0/QuantConnect.DataLibrary.Tests.dll
+
